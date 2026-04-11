@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Psycho Multi Agent</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f6f7f9; margin: 0; color: #222; }
+    .container { max-width: 980px; margin: 0 auto; padding: 1.25rem; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+    .card { background: white; border-radius: 14px; padding: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,.06); }
+    .chat { min-height: 420px; max-height: 65vh; overflow-y: auto; white-space: pre-wrap; }
+    .msg { padding: .8rem 1rem; border-radius: 12px; margin-bottom: .75rem; }
+    .therapist { background: #eaf2ff; }
+    .patient { background: #f2f2f2; }
+    .supervision { background: #fff8df; }
+    .evaluation { background: #eaf8ea; }
+    textarea { width: 100%; min-height: 110px; box-sizing: border-box; padding: .9rem; border-radius: 12px; border: 1px solid #ccc; resize: vertical; }
+    .actions { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: .75rem; }
+    button { padding: .8rem 1rem; border: 0; border-radius: 10px; cursor: pointer; }
+    .muted { color: #666; font-size: .95rem; }
+    .row { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; margin-top: 1rem; }
+    @media (max-width: 820px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <h1 style="margin-bottom:.2rem;">Psycho Multi Agent</h1>
+        <div class="muted">Beta-Bereich · automatische Evaluation nach {{ eval_after }} Therapeuten-Zügen</div>
+      </div>
+      <form method="post" action="/logout">
+        <button type="submit">Logout</button>
+      </form>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <h3>Dialog</h3>
+        <div id="chat" class="chat"></div>
+      </div>
+
+      <div class="card">
+        <h3>Szenario</h3>
+        <div class="muted">{{ scenario.get("title", "Training") }}</div>
+        <p>{{ scenario.get("description", "") }}</p>
+        <div class="muted">Bitte keine echten Patientendaten eingeben.</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:1rem;">
+      <h3>Eingabe</h3>
+      <textarea id="therapistText" placeholder="Deine nächste therapeutische Intervention..."></textarea>
+      <div class="actions">
+        <button id="sendBtn">Senden</button>
+        <button id="evalBtn" type="button">Evaluation anfordern</button>
+        <button id="resetBtn" type="button">Sitzung zurücksetzen</button>
+      </div>
+      <div id="status" class="muted" style="margin-top:.75rem;"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

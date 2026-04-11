@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: psycho-multi-agent
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: FLASK_SECRET_KEY
+        sync: false
+      - key: BETA_PASSWORD
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: MAX_TURNS
+        value: "20"
+      - key: MAX_INPUT_LENGTH
+        value: "3000"
