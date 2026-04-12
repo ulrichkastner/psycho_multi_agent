@@ -10,7 +10,9 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 from openai import OpenAI
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = BASE_DIR / "config" / "psy_training.yaml"
+CONFIG_DIR = BASE_DIR / "config"
+BASE_CONFIG_PATH = CONFIG_DIR / "base.yaml"
+CASES_DIR = CONFIG_DIR / "cases"
 INSTANCE_DIR = BASE_DIR / "instance"
 SESSIONS_DIR = INSTANCE_DIR / "sessions"
 
@@ -30,16 +32,6 @@ app.config.update(
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-    config = yaml.safe_load(f)
-
-scenario = config.get("scenario", {})
-agents = config["agents"]
-orchestration = config.get("orchestration", {})
-
-eval_cfg = orchestration.get("evaluation_trigger", [])
-EVAL_AFTER = eval_cfg[0].get("after_therapist_turns", 12) if eval_cfg else 12
-
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 BETA_PASSWORD = os.getenv("BETA_PASSWORD", "change-me")
 MAX_TURNS = int(os.getenv("MAX_TURNS", "20"))
@@ -48,12 +40,55 @@ DEFAULT_SUPERVISION_INTERVAL = int(os.getenv("DEFAULT_SUPERVISION_INTERVAL", "5"
 MAX_HISTORY_LINES = 40
 
 
+def load_yaml(path: Path) -> Dict[str, Any]:
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+base_config = load_yaml(BASE_CONFIG_PATH)
+base_agents = base_config["agents"]
+orchestration = base_config.get("orchestration", {})
+
+eval_cfg = orchestration.get("evaluation_trigger", [])
+EVAL_AFTER = eval_cfg[0].get("after_therapist_turns", 12) if eval_cfg else 12
+
+
+def discover_cases() -> Dict[str, Dict[str, Any]]:
+    cases: Dict[str, Dict[str, Any]] = {}
+
+    for path in sorted(CASES_DIR.glob("case_*.yaml")):
+        data = load_yaml(path)
+        scenario = data.get("scenario", {})
+        case_id = scenario.get("id") or path.stem
+        cases[case_id] = {
+            "file": path.name,
+            "scenario": scenario,
+            "patient": data["patient"],
+        }
+
+    return cases
+
+
+CASES = discover_cases()
+DEFAULT_CASE_ID = sorted(CASES.keys())[0] if CASES else None
+
+
+def get_case(case_id: Optional[str]) -> Dict[str, Any]:
+    if case_id in CASES:
+        return CASES[case_id]
+    if DEFAULT_CASE_ID:
+        return CASES[DEFAULT_CASE_ID]
+    raise RuntimeError("Keine Fälle gefunden.")
+
+
 def _session_file(session_id: str) -> Path:
     return SESSIONS_DIR / f"{session_id}.json"
 
 
-def create_empty_state() -> Dict[str, Any]:
+def create_empty_state(case_id: Optional[str] = None) -> Dict[str, Any]:
+    selected_case_id = case_id or DEFAULT_CASE_ID
     return {
+        "case_id": selected_case_id,
         "dialog_history": [],
         "therapist_turns": [],
         "therapist_turn_count": 0,
@@ -70,6 +105,13 @@ def get_session_id() -> str:
         sid = str(uuid.uuid4())
         session["chat_session_id"] = sid
     return sid
+
+
+def save_state(state: Dict[str, Any]) -> None:
+    sid = get_session_id()
+    path = _session_file(sid)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
 
 
 def load_state() -> Dict[str, Any]:
@@ -89,6 +131,8 @@ def load_state() -> Dict[str, Any]:
         save_state(state)
         return state
 
+    if "case_id" not in state or state["case_id"] not in CASES:
+        state["case_id"] = DEFAULT_CASE_ID
     if "latest_supervision" not in state:
         state["latest_supervision"] = None
     if "latest_evaluation" not in state:
@@ -96,18 +140,30 @@ def load_state() -> Dict[str, Any]:
     if "supervision_interval" not in state:
         state["supervision_interval"] = DEFAULT_SUPERVISION_INTERVAL
 
+    cleaned_history = []
+    latest_supervision = state.get("latest_supervision")
+    latest_evaluation = state.get("latest_evaluation")
+
+    for line in state.get("dialog_history", []):
+        if isinstance(line, str) and line.startswith("SUPERVISION: "):
+            if not latest_supervision:
+                latest_supervision = line.replace("SUPERVISION: ", "", 1)
+            continue
+        if isinstance(line, str) and line.startswith("EVALUATION: "):
+            if not latest_evaluation:
+                latest_evaluation = line.replace("EVALUATION: ", "", 1)
+            continue
+        cleaned_history.append(line)
+
+    state["dialog_history"] = cleaned_history
+    state["latest_supervision"] = latest_supervision
+    state["latest_evaluation"] = latest_evaluation
+
     return state
 
 
-def save_state(state: Dict[str, Any]) -> None:
-    sid = get_session_id()
-    path = _session_file(sid)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
-
-
-def reset_state() -> Dict[str, Any]:
-    state = create_empty_state()
+def reset_state(case_id: Optional[str] = None) -> Dict[str, Any]:
+    state = create_empty_state(case_id=case_id)
     save_state(state)
     return state
 
@@ -134,9 +190,9 @@ def llm_completion(system_text: str, user_text: str, temperature: float = 0.4) -
     return (response.choices[0].message.content or "").strip()
 
 
-def call_agent(agent_name: str, user_text: str, dialog_history: List[str]) -> str:
-    agent = agents[agent_name]
-    instructions = agent["instructions"]
+def call_patient(case_id: str, user_text: str, dialog_history: List[str]) -> str:
+    patient = get_case(case_id)["patient"]
+    instructions = patient["instructions"]
 
     history_text = "\n".join(dialog_history[-MAX_HISTORY_LINES:])
     prompt = (
@@ -150,7 +206,7 @@ def call_agent(agent_name: str, user_text: str, dialog_history: List[str]) -> st
 
 
 def call_supervisor(last_therapist_turns: List[str], last_patient_reply: Optional[str]) -> str:
-    instructions = agents["supervisor"]["instructions"]
+    instructions = base_agents["supervisor"]["instructions"]
 
     text = "Letzte Interventionen des Therapeuten:\n"
     for t in last_therapist_turns:
@@ -163,7 +219,7 @@ def call_supervisor(last_therapist_turns: List[str], last_patient_reply: Optiona
 
 
 def call_rater(full_therapist_transcript: List[str], full_dialog: List[str]) -> str:
-    instructions = agents["rater"]["instructions"]
+    instructions = base_agents["rater"]["instructions"]
 
     text = "Gesamter Dialog:\n" + "\n".join(full_dialog[-80:]) + "\n\n"
     text += "Therapeuten-Interventionen im Überblick:\n"
@@ -197,11 +253,26 @@ def index():
     gate = require_login()
     if gate:
         return gate
+
+    state = load_state()
+
+    case_options = [
+        {
+            "id": case_id,
+            "title": case_data["scenario"].get("title", case_id),
+        }
+        for case_id, case_data in sorted(CASES.items())
+    ]
+
+    current_case = get_case(state["case_id"])
+
     return render_template(
         "index.html",
-        scenario=scenario,
+        scenario=current_case["scenario"],
         eval_after=EVAL_AFTER,
         default_supervision_interval=DEFAULT_SUPERVISION_INTERVAL,
+        case_options=case_options,
+        current_case_id=state["case_id"],
     )
 
 
@@ -211,13 +282,24 @@ def api_state():
         return jsonify({"error": "Nicht autorisiert"}), 401
 
     state = load_state()
+    current_case = get_case(state["case_id"])
+
     return jsonify(
         {
+            "case_id": state["case_id"],
+            "scenario": current_case["scenario"],
             "dialog_history": state["dialog_history"],
             "therapist_turn_count": state["therapist_turn_count"],
             "latest_supervision": state.get("latest_supervision"),
             "latest_evaluation": state.get("latest_evaluation"),
             "supervision_interval": state.get("supervision_interval", DEFAULT_SUPERVISION_INTERVAL),
+            "cases": [
+                {
+                    "id": case_id,
+                    "title": case_data["scenario"].get("title", case_id),
+                }
+                for case_id, case_data in sorted(CASES.items())
+            ],
         }
     )
 
@@ -231,6 +313,8 @@ def api_settings():
     data = request.get_json(force=True) or {}
 
     interval = data.get("supervision_interval", DEFAULT_SUPERVISION_INTERVAL)
+    case_id = data.get("case_id", state["case_id"])
+
     try:
         interval = int(interval)
     except (TypeError, ValueError):
@@ -239,14 +323,31 @@ def api_settings():
     if interval < 1 or interval > 50:
         return jsonify({"error": "Supervisionsintervall muss zwischen 1 und 50 liegen."}), 400
 
+    if case_id not in CASES:
+        return jsonify({"error": "Ungültiger Fall."}), 400
+
+    case_changed = case_id != state["case_id"]
+
+    if case_changed:
+        state = create_empty_state(case_id=case_id)
+
     state["supervision_interval"] = interval
     save_state(state)
+
+    current_case = get_case(state["case_id"])
 
     return jsonify(
         {
             "ok": True,
+            "case_changed": case_changed,
+            "case_id": state["case_id"],
+            "scenario": current_case["scenario"],
             "supervision_interval": interval,
-            "message": f"Supervisionsintervall auf {interval} gesetzt."
+            "message": (
+                f"Fall gewechselt und Sitzung zurückgesetzt. Supervisionsintervall auf {interval} gesetzt."
+                if case_changed
+                else f"Supervisionsintervall auf {interval} gesetzt."
+            ),
         }
     )
 
@@ -256,11 +357,14 @@ def api_reset():
     if not is_logged_in():
         return jsonify({"error": "Nicht autorisiert"}), 401
 
-    state = reset_state()
+    state = load_state()
+    state = reset_state(case_id=state["case_id"])
+
     return jsonify(
         {
             "ok": True,
-            "message": "Sitzung zurückgesetzt. Beginne mit einer neuen offenen Frage an Laura.",
+            "message": "Sitzung zurückgesetzt.",
+            "case_id": state["case_id"],
             "supervision_interval": state["supervision_interval"],
         }
     )
@@ -291,7 +395,7 @@ def api_turn():
     state["dialog_history"].append(f"THERAPEUT: {therapist_text}")
 
     try:
-        patient_reply = call_agent("patient", therapist_text, state["dialog_history"])
+        patient_reply = call_patient(state["case_id"], therapist_text, state["dialog_history"])
     except Exception as e:
         return jsonify({"error": f"Fehler beim Aufruf der Patientin: {str(e)}"}), 500
 
@@ -334,6 +438,7 @@ def api_turn():
             "latest_supervision": state.get("latest_supervision"),
             "latest_evaluation": state.get("latest_evaluation"),
             "supervision_interval": supervision_interval,
+            "case_id": state["case_id"],
         }
     )
 
