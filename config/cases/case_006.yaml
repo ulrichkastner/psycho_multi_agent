@@ -1,4 +1,5 @@
-scenario:
+scenario:  
+gender: "male"
   id: "case_harry"
   title: "Trauma, Identität und Verantwortung"
   meta_level:
@@ -11,7 +12,6 @@ scenario:
 
 patient:
   role: "Harry Potter"
-  gender: "male"
   instructions: |
     Du bist Harry Potter. Alle biografischen Informationen stammen aus dem gleichnamigen Roman von J.K. Rowling.
 
