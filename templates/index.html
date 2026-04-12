@@ -6,20 +6,22 @@
   <title>Psycho Multi Agent</title>
   <style>
     body { font-family: Arial, sans-serif; background: #f6f7f9; margin: 0; color: #222; }
-    .container { max-width: 980px; margin: 0 auto; padding: 1.25rem; }
+    .container { max-width: 1180px; margin: 0 auto; padding: 1.25rem; }
     .topbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
     .card { background: white; border-radius: 14px; padding: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,.06); }
     .chat { min-height: 420px; max-height: 65vh; overflow-y: auto; white-space: pre-wrap; }
     .msg { padding: .8rem 1rem; border-radius: 12px; margin-bottom: .75rem; }
     .therapist { background: #eaf2ff; }
     .patient { background: #f2f2f2; }
-    .supervision { background: #fff8df; }
-    .evaluation { background: #eaf8ea; }
+    .meta-box { min-height: 120px; white-space: pre-wrap; color: #333; }
     textarea { width: 100%; min-height: 110px; box-sizing: border-box; padding: .9rem; border-radius: 12px; border: 1px solid #ccc; resize: vertical; }
+    input[type="number"] { width: 120px; padding: .6rem; border-radius: 10px; border: 1px solid #ccc; }
     .actions { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: .75rem; }
     button { padding: .8rem 1rem; border: 0; border-radius: 10px; cursor: pointer; }
     .muted { color: #666; font-size: .95rem; }
     .row { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; margin-top: 1rem; }
+    .side-stack { display: grid; gap: 1rem; }
+    .setup-row { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-top: .5rem; }
     @media (max-width: 820px) { .row { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -35,17 +37,45 @@
       </form>
     </div>
 
+    <div class="card" style="margin-top:1rem;">
+      <h3>Supervisionsintervall</h3>
+      <div class="muted">Lege fest, nach wie vielen Interventionen automatisch eine Supervision ausgelöst wird.</div>
+      <div class="setup-row">
+        <label for="supervisionInterval">Intervall</label>
+        <input
+          id="supervisionInterval"
+          type="number"
+          min="1"
+          max="50"
+          value="{{ default_supervision_interval }}"
+        >
+        <button id="saveSettingsBtn" type="button">Speichern</button>
+      </div>
+    </div>
+
     <div class="row">
       <div class="card">
         <h3>Dialog</h3>
         <div id="chat" class="chat"></div>
       </div>
 
-      <div class="card">
-        <h3>Szenario</h3>
-        <div class="muted">{{ scenario.get("title", "Training") }}</div>
-        <p>{{ scenario.get("description", "") }}</p>
-        <div class="muted">Bitte keine echten Patientendaten eingeben.</div>
+      <div class="side-stack">
+        <div class="card">
+          <h3>Szenario</h3>
+          <div class="muted">{{ scenario.get("title", "Training") }}</div>
+          <p>{{ scenario.get("description", "") }}</p>
+          <div class="muted">Bitte keine echten Patientendaten eingeben.</div>
+        </div>
+
+        <div class="card">
+          <h3>Supervision</h3>
+          <div id="supervisionBox" class="meta-box muted">Noch keine Supervision vorhanden.</div>
+        </div>
+
+        <div class="card">
+          <h3>Evaluation</h3>
+          <div id="evaluationBox" class="meta-box muted">Noch keine Evaluation vorhanden.</div>
+        </div>
       </div>
     </div>
 
