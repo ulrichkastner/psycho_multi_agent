@@ -9,6 +9,11 @@ const supervisionBox = document.getElementById("supervisionBox");
 const evaluationBox = document.getElementById("evaluationBox");
 const supervisionIntervalInput = document.getElementById("supervisionInterval");
 const saveSettingsBtn = document.getElementById("saveSettingsBtn");
+const caseSelect = document.getElementById("caseSelect");
+
+const scenarioTitle = document.getElementById("scenarioTitle");
+const scenarioDescription = document.getElementById("scenarioDescription");
+const scenarioGoals = document.getElementById("scenarioGoals");
 
 function escapeHtml(text) {
   const div = document.createElement("div");
@@ -48,8 +53,6 @@ function renderHistory(lines) {
         "patient",
         `<strong>Patientin</strong><br>${escapeHtml(line.replace("PATIENTIN: ", ""))}`
       );
-    } else {
-      continue;
     }
   }
 }
@@ -80,6 +83,21 @@ function setEvaluation(text) {
   }
 }
 
+function renderScenario(scenario) {
+  if (!scenario) return;
+
+  scenarioTitle.textContent = scenario.title || "Training";
+  scenarioDescription.textContent = scenario.description || "";
+
+  scenarioGoals.innerHTML = "";
+  const goals = Array.isArray(scenario.learning_goals) ? scenario.learning_goals : [];
+  for (const goal of goals) {
+    const li = document.createElement("li");
+    li.textContent = goal;
+    scenarioGoals.appendChild(li);
+  }
+}
+
 async function loadState() {
   try {
     const res = await fetch("/api/state");
@@ -100,6 +118,11 @@ async function loadState() {
       supervisionIntervalInput.value = data.supervision_interval;
     }
 
+    if (typeof data.case_id !== "undefined" && caseSelect) {
+      caseSelect.value = data.case_id;
+    }
+
+    renderScenario(data.scenario);
     setSupervision(data.latest_supervision || "");
     setEvaluation(data.latest_evaluation || "");
   } catch (err) {
@@ -109,6 +132,7 @@ async function loadState() {
 
 async function saveSettings() {
   const interval = supervisionIntervalInput.value.trim();
+  const caseId = caseSelect.value;
 
   saveSettingsBtn.disabled = true;
   statusEl.textContent = "Einstellungen werden gespeichert ...";
@@ -121,6 +145,7 @@ async function saveSettings() {
       },
       body: JSON.stringify({
         supervision_interval: interval,
+        case_id: caseId,
       }),
     });
 
@@ -133,6 +158,18 @@ async function saveSettings() {
 
     if (typeof data.supervision_interval !== "undefined") {
       supervisionIntervalInput.value = data.supervision_interval;
+    }
+
+    if (typeof data.case_id !== "undefined") {
+      caseSelect.value = data.case_id;
+    }
+
+    renderScenario(data.scenario);
+
+    if (data.case_changed) {
+      chat.innerHTML = "";
+      setSupervision("");
+      setEvaluation("");
     }
 
     statusEl.textContent = data.message || "Gespeichert.";
