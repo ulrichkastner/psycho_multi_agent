@@ -25,12 +25,29 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-function renderMarkdown(text) {
+function renderMarkdownBlock(text) {
   if (!text) return "";
   if (typeof marked === "undefined") {
     return escapeHtml(text);
   }
   return marked.parse(text);
+}
+
+function renderChatMarkdown(text) {
+  if (!text) return "";
+
+  if (typeof marked === "undefined") {
+    return escapeHtml(text).replace(/\n/g, "<br>");
+  }
+
+  let html = marked.parse(text);
+
+  html = html
+    .replace(/^<p>/, "")
+    .replace(/<\/p>\s*$/, "")
+    .replace(/<\/p>\s*<p>/g, "<br><br>");
+
+  return html;
 }
 
 function appendMessage(kind, text) {
@@ -61,14 +78,14 @@ function renderHistory(lines) {
 
       appendMessage(
         "patient",
-        `<strong>${escapeHtml(label)}</strong><br>${renderMarkdown(content)}`
+        `<strong>${escapeHtml(label)}</strong><br>${renderChatMarkdown(content)}`
       );
     }
   }
 }
 
 function buildSupervisionAccordion(markdownText) {
-  const rawHtml = renderMarkdown(markdownText || "");
+  const rawHtml = renderMarkdownBlock(markdownText || "");
   if (!rawHtml.trim()) {
     return "Noch keine Supervision vorhanden.";
   }
@@ -100,7 +117,7 @@ function buildSupervisionAccordion(markdownText) {
         };
         sections.push(currentSection);
       }
-      sections[currentSection ? sections.length - 1 : 0].content.push(node.cloneNode(true));
+      currentSection.content.push(node.cloneNode(true));
     }
   }
 
@@ -169,7 +186,7 @@ function setEvaluation(text) {
   if (text && text.trim()) {
     evaluationBox.classList.remove("muted");
     evaluationBox.classList.add("evaluation-active");
-    evaluationBox.innerHTML = renderMarkdown(text);
+    evaluationBox.innerHTML = renderMarkdownBlock(text);
   } else {
     evaluationBox.classList.add("muted");
     evaluationBox.innerHTML = "Noch keine Evaluation vorhanden.";
@@ -211,7 +228,7 @@ function renderSupervisionHistory(history) {
 
     const box = document.createElement("div");
     box.className = "meta-box";
-    box.innerHTML = renderMarkdown(item.text || "");
+    box.innerHTML = renderMarkdownBlock(item.text || "");
 
     wrapper.appendChild(label);
     wrapper.appendChild(box);
@@ -342,12 +359,10 @@ async function sendTurn() {
       return;
     }
 
-    const patientLabel = getRenderedPatientLabel(data);
-
     appendMessage(
       "patient",
-      `<strong>${escapeHtml(data.patient_label || "PATIENTIN")}</strong><br>${renderMarkdown(data.patient_reply || "")}`
-      );
+      `<strong>${escapeHtml(data.patient_label || "PATIENTIN")}</strong><br>${renderChatMarkdown(data.patient_reply || "")}`
+    );
 
     updateSupervisionUI(data.supervision_history || []);
     setEvaluation(data.latest_evaluation || "");
@@ -358,29 +373,6 @@ async function sendTurn() {
   } finally {
     sendBtn.disabled = false;
   }
-}
-
-function getRenderedPatientLabel(data) {
-  if (data && data.case_id && caseSelect) {
-    const selectedOption = Array.from(caseSelect.options).find(
-      (opt) => opt.value === data.case_id
-    );
-    if (selectedOption) {
-      const title = selectedOption.textContent || "";
-      if (title.includes("Patient:in")) return "PATIENT:IN";
-    }
-  }
-
-  return inferPatientLabelFromScenario() || "PATIENTIN";
-}
-
-function inferPatientLabelFromScenario() {
-  const scenarioText = `${scenarioTitle?.textContent || ""} ${scenarioDescription?.textContent || ""}`.toLowerCase();
-
-  if (scenarioText.includes("patient:in")) return "PATIENT:IN";
-  if (scenarioText.includes(" patient ") || scenarioText.includes("einem ")) return "PATIENT";
-
-  return "PATIENTIN";
 }
 
 async function runEvaluation() {
