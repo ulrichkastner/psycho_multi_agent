@@ -323,9 +323,11 @@ async function saveSettings() {
       body: JSON.stringify({
         supervision_interval: interval,
         case_id: caseId,
+        mode: modeSelect.value
       }),
     });
 
+    
     const data = await res.json();
 
     if (!res.ok) {
