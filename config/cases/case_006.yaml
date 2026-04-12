@@ -1,5 +1,5 @@
 scenario:  
-gender: "male"
+  gender: "male"
   id: "case_harry"
   title: "Trauma, Identität und Verantwortung"
   meta_level:
