@@ -25,8 +25,9 @@
 
 <ul>
   <li>Mehrere psychotherapeutische Trainingsfälle</li>
-  <li>Fallauswahl über das Frontend</li>
+  <li>Fallauswahl über das Frontend (inkl. Sitzungsreset bei Wechsel)</li>
   <li>Simulierte Patient:innenantworten mit verbalem und nonverbalem Feedback</li>
+  <li>Zentrale Rollenlogik (Patient / Patientin / Patient:in)</li>
   <li>Automatische Supervision nach konfigurierbarem Intervall</li>
   <li>Supervisionshistorie mit nummerierten Rückmeldungen</li>
   <li>Manuelle und automatische Evaluation</li>
@@ -49,7 +50,7 @@
 │       ├── case_001.yaml
 │       ├── case_002.yaml
 │       ├── case_003.yaml
-        ├── case_004.yaml
+│       ├── case_004.yaml
 │       └── case_XXX.yaml
 ├── templates/
 │   ├── login.html
@@ -84,6 +85,11 @@
 <p>
   Supervisor und Evaluator werden global definiert, während die Patient:innenrolle
   und das Szenario fallbezogen geladen werden.
+</p>
+
+<p>
+  Die Rollenbezeichnung (z. B. <em>Patient</em>, <em>Patientin</em>, <em>Patient:in</em>) wird zentral
+  über die Backend-Logik gesteuert und automatisch in Dialog, Supervision und Evaluation verwendet.
 </p>
 
 <h2>Fallbibliothek</h2>
@@ -124,6 +130,8 @@
 <pre><code>scenario:
   id: "case_005"
   title: "Beispieltitel"
+  gender: "male"   # Steuerung der Rollenbezeichnung
+
   description: >
     Kurze Beschreibung des Falls.
   learning_goals:
@@ -131,10 +139,23 @@
     - "Lernziel 2"
 
 patient:
-  role: "Simulierte Patientin"
+  role: "Simulierte Patient:in"
   model: "gpt-4.1-mini"
   instructions: |
     Fallbezogene Instruktionen für die Patient:innenrolle.</code></pre>
+
+<h3>Rollenlogik</h3>
+
+<ul>
+  <li><code>male</code> → Patient</li>
+  <li><code>female</code> → Patientin</li>
+  <li><code>diverse</code> → Patient:in</li>
+</ul>
+
+<p>
+  Die Rollenbezeichnung wird automatisch im gesamten System verwendet.
+  Eine harte Kodierung (z. B. „Patientin“) in Prompts oder Frontend ist nicht erforderlich.
+</p>
 
 <h2>Lokale Entwicklung</h2>
 
@@ -173,7 +194,7 @@ python app.py</code></pre>
   markup-basierter Form dargestellt, zum Beispiel:
 </p>
 
-<pre><code>[*Patientin seufzt und schaut weg.*]
+<pre><code>[*Patient schaut weg und zögert.*]
 
 Ich weiß gerade nicht, was ich dazu sagen soll.</code></pre>
 
@@ -210,6 +231,7 @@ Ich weiß gerade nicht, was ich dazu sagen soll.</code></pre>
   <li>Trainingsmodus und Prüfmodus unterscheiden</li>
   <li>Direkte Supervisor-Anfrage als eigene Funktion</li>
   <li>Validierung von Fallkonfigurationen beim Laden</li>
+  <li>Erweiterung von Rollenmodellen (z. B. Klient, Jugendliche)</li>
   <li>Verbesserte Sitzungs- und Nutzerverwaltung</li>
 </ul>
 
