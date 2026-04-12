@@ -1,3 +1,4 @@
+const modeSelect = document.getElementById("modeSelect");
 const chat = document.getElementById("chat");
 const statusEl = document.getElementById("status");
 const sendBtn = document.getElementById("sendBtn");
