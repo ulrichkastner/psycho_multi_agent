@@ -82,6 +82,17 @@ def get_case(case_id: Optional[str]) -> Dict[str, Any]:
     raise RuntimeError("Keine Fälle gefunden.")
 
 
+def get_patient_label(case_id: str) -> str:
+    case = get_case(case_id)
+    gender = case["scenario"].get("gender", "female")
+
+    if gender == "male":
+        return "Patient"
+    if gender == "diverse":
+        return "Patient:in"
+    return "Patientin"
+
+
 def _session_file(session_id: str) -> Path:
     return SESSIONS_DIR / f"{session_id}.json"
 
@@ -194,7 +205,43 @@ def llm_completion(system_text: str, user_text: str, temperature: float = 0.4) -
     return (response.choices[0].message.content or "").strip()
 
 
-def normalize_patient_feedback(text: str) -> str:
+def rewrite_action_to_neutral(action_text: str, case_id: str) -> str:
+    label = get_patient_label(case_id)
+    text = action_text.strip()
+
+    text = re.sub(r"^(ich|Ich)\s+", f"{label} ", text)
+
+    replacements = [
+        (rf"\b{re.escape(label)} bin\b", f"{label} ist"),
+        (rf"\b{re.escape(label)} schaue\b", f"{label} schaut"),
+        (rf"\b{re.escape(label)} sehe\b", f"{label} schaut"),
+        (rf"\b{re.escape(label)} seufze\b", f"{label} seufzt"),
+        (rf"\b{re.escape(label)} schweige\b", f"{label} schweigt"),
+        (rf"\b{re.escape(label)} zögere\b", f"{label} zögert"),
+        (rf"\b{re.escape(label)} wirke\b", f"{label} wirkt"),
+        (rf"\b{re.escape(label)} lache\b", f"{label} lacht"),
+        (rf"\b{re.escape(label)} presse\b", f"{label} presst"),
+        (rf"\b{re.escape(label)} atme\b", f"{label} atmet"),
+        (rf"\b{re.escape(label)} fasse\b", f"{label} fasst"),
+        (rf"\b{re.escape(label)} zucke\b", f"{label} zuckt"),
+        (rf"\b{re.escape(label)} spiele\b", f"{label} spielt"),
+        (rf"\b{re.escape(label)} blicke\b", f"{label} blickt"),
+        (rf"\b{re.escape(label)} schaue wieder weg\b", f"{label} schaut wieder weg"),
+    ]
+
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text)
+
+    if not text.lower().startswith(label.lower()):
+        text = f"{label} {text[0].lower() + text[1:]}" if text else f"{label} reagiert"
+
+    if text and text[-1] not in ".!?":
+        text += "."
+
+    return text
+
+
+def normalize_patient_feedback(text: str, case_id: str) -> str:
     """
     Wandelt nonverbale Einschübe in neutrales Markdown um:
     *Ich seufze und schaue weg.*
@@ -208,65 +255,29 @@ def normalize_patient_feedback(text: str) -> str:
 
     normalized = text.strip()
 
-    # Fall 1: Sternchen-Zeile am Anfang
     match = re.match(r"^\*(.+?)\*\s*(.*)$", normalized, flags=re.DOTALL)
     if match:
         action_text = match.group(1).strip()
         spoken_text = match.group(2).strip()
 
-        action_text = rewrite_action_to_neutral(action_text)
+        action_text = rewrite_action_to_neutral(action_text, case_id)
 
         if spoken_text:
             return f"[*{action_text}*]\n\n{spoken_text}"
         return f"[*{action_text}*]"
 
-    # Fall 2: Schon in Klammern oder gemischt, aber mit Ich-Perspektive
     bracket_match = re.match(r"^\[\*?(.+?)\*?\]\s*(.*)$", normalized, flags=re.DOTALL)
     if bracket_match:
         action_text = bracket_match.group(1).strip()
         spoken_text = bracket_match.group(2).strip()
 
-        action_text = rewrite_action_to_neutral(action_text)
+        action_text = rewrite_action_to_neutral(action_text, case_id)
 
         if spoken_text:
             return f"[*{action_text}*]\n\n{spoken_text}"
         return f"[*{action_text}*]"
 
     return normalized
-
-
-def rewrite_action_to_neutral(action_text: str) -> str:
-    text = action_text.strip()
-
-    # führendes Ich / ich ersetzen
-    text = re.sub(r"^(ich|Ich)\s+", "Patientin ", text)
-
-    # einige häufige Formen neutralisieren
-    replacements = [
-        (r"\bPatientin bin\b", "Patientin ist"),
-        (r"\bPatientin schaue\b", "Patientin schaut"),
-        (r"\bPatientin sehe\b", "Patientin schaut"),
-        (r"\bPatientin seufze\b", "Patientin seufzt"),
-        (r"\bPatientin schweige\b", "Patientin schweigt"),
-        (r"\bPatientin zögere\b", "Patientin zögert"),
-        (r"\bPatientin wirke\b", "Patientin wirkt"),
-        (r"\bPatientin lache\b", "Patientin lacht"),
-        (r"\bPatientin presse\b", "Patientin presst"),
-        (r"\bPatientin atme\b", "Patientin atmet"),
-        (r"\bPatientin fasse\b", "Patientin fasst"),
-        (r"\bPatientin zucke\b", "Patientin zuckt"),
-    ]
-
-    for pattern, replacement in replacements:
-        text = re.sub(pattern, replacement, text)
-
-    if not text.lower().startswith("patientin "):
-        text = f"Patientin {text[0].lower() + text[1:]}" if text else "Patientin reagiert"
-
-    if text and text[-1] not in ".!?":
-        text += "."
-
-    return text
 
 
 def call_patient(case_id: str, user_text: str, dialog_history: List[str]) -> str:
@@ -282,18 +293,22 @@ def call_patient(case_id: str, user_text: str, dialog_history: List[str]) -> str
     )
 
     raw_reply = llm_completion(instructions, prompt, temperature=0.4)
-    return normalize_patient_feedback(raw_reply)
+    return normalize_patient_feedback(raw_reply, case_id)
 
 
-def call_supervisor(last_therapist_turns: List[str], last_patient_reply: Optional[str]) -> str:
+def call_supervisor(case_id: str, last_therapist_turns: List[str], last_patient_reply: Optional[str]) -> str:
+    label = get_patient_label(case_id)
     instructions = base_agents["supervisor"]["instructions"]
+
+    instructions = instructions.replace("Patientin", label)
+    instructions = instructions.replace("Patientinnen-Rolle", f"{label}-Rolle")
 
     text = "Letzte Interventionen des Therapeuten:\n"
     for t in last_therapist_turns:
         text += f"- {t}\n"
 
     if last_patient_reply:
-        text += f"\nLetzte Antwort der Patientin:\n{last_patient_reply}\n"
+        text += f"\nLetzte Antwort von {label.lower()}:\n{last_patient_reply}\n"
 
     return llm_completion(instructions, text, temperature=0.4)
 
@@ -478,10 +493,11 @@ def api_turn():
     try:
         patient_reply = call_patient(state["case_id"], therapist_text, state["dialog_history"])
     except Exception as e:
-        return jsonify({"error": f"Fehler beim Aufruf der Patientin: {str(e)}"}), 500
+        return jsonify({"error": f"Fehler beim Aufruf der Patient:in: {str(e)}"}), 500
 
+    patient_label = get_patient_label(state["case_id"]).upper()
     state["last_patient_reply"] = patient_reply
-    state["dialog_history"].append(f"PATIENTIN: {patient_reply}")
+    state["dialog_history"].append(f"{patient_label}: {patient_reply}")
 
     supervision_feedback = None
     evaluation_text = None
@@ -492,6 +508,7 @@ def api_turn():
         try:
             last_n = min(supervision_interval, len(state["therapist_turns"]))
             supervision_feedback = call_supervisor(
+                state["case_id"],
                 state["therapist_turns"][-last_n:],
                 state["last_patient_reply"],
             )
