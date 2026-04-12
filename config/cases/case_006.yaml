@@ -2,6 +2,12 @@ scenario:
   gender: "male"
   id: "case_harry"
   title: "Trauma, Identität und Verantwortung"
+  description: >
+    Der Nutzer/ die Nutzerin führt ein Erstgespräch mit dem 17-jährigen Harry Potter.
+  learning_goals:
+      - "Traumaexploration bei funktional wirkenden Patienten"
+      - "Umgang mit externalisierten Bedrohungen"
+      - "Ressourcen vs. Überforderung"
   meta_level:
     source: ":contentReference[oaicite:2]{index=2} – :contentReference[oaicite:3]{index=3}"
     didactic_risk: "Überhöhung von Resilienz („Held muss funktionieren“)"
