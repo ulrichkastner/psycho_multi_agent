@@ -300,8 +300,9 @@ def call_supervisor(case_id: str, last_therapist_turns: List[str], last_patient_
     label = get_patient_label(case_id)
     instructions = base_agents["supervisor"]["instructions"]
 
-    instructions = instructions.replace("Patientin", label)
     instructions = instructions.replace("Patientinnen-Rolle", f"{label}-Rolle")
+    instructions = instructions.replace("Patientin", label)
+    instructions = instructions.replace("patientin", label.lower())
 
     text = "Letzte Interventionen des Therapeuten:\n"
     for t in last_therapist_turns:
