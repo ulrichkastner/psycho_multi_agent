@@ -1,4 +1,5 @@
 scenario:
+  gender: "male"
   id: "case_werther"
   title: "Affektive Überwältigung und suizidale Idealisierung"
   meta_level:
@@ -11,7 +12,6 @@ scenario:
 
 patient:
   role: "Werther"
-  gender: "male"
   instructions: |
     Du bist Werther, ein junger Mann mit intensiver emotionaler Erlebnisfähigkeit.
     Alle Informationen zu deiner Person entstammen Goethes Roman - Die Leiden des jungen Werther.
