@@ -13,70 +13,63 @@
     .msg { padding: .8rem 1rem; border-radius: 12px; margin-bottom: .75rem; }
     .therapist { background: #eaf2ff; }
     .patient { background: #f2f2f2; }
-    <style>
-  body { font-family: Arial, sans-serif; background: #f6f7f9; margin: 0; color: #222; }
-  .container { max-width: 1180px; margin: 0 auto; padding: 1.25rem; }
-  .topbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-  .card { background: white; border-radius: 14px; padding: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,.06); }
-  .chat { min-height: 420px; max-height: 65vh; overflow-y: auto; white-space: pre-wrap; }
-  .msg { padding: .8rem 1rem; border-radius: 12px; margin-bottom: .75rem; }
-  .therapist { background: #eaf2ff; }
-  .patient { background: #f2f2f2; }
 
-  .meta-box {
-    min-height: 120px;
-    white-space: pre-wrap;
-    color: #333;
-    padding: .9rem 1rem;
-    border-radius: 12px;
-    background: #f7f7f7;
-    border: 1px solid #e3e3e3;
-  }
+    .meta-box {
+      min-height: 120px;
+      white-space: pre-wrap;
+      color: #333;
+      padding: .9rem 1rem;
+      border-radius: 12px;
+      background: #f7f7f7;
+      border: 1px solid #e3e3e3;
+    }
 
-  .meta-box.supervision-active {
-    background: #fff8df;
-    border: 1px solid #f0df95;
-  }
+    .meta-box.supervision-active {
+      background: #fff8df;
+      border: 1px solid #f0df95;
+    }
 
-  .meta-box.evaluation-active {
-    background: #eaf8ea;
-    border: 1px solid #b7ddb7;
-  }
+    .meta-box.evaluation-active {
+      background: #eaf8ea;
+      border: 1px solid #b7ddb7;
+    }
 
-  textarea { width: 100%; min-height: 110px; box-sizing: border-box; padding: .9rem; border-radius: 12px; border: 1px solid #ccc; resize: vertical; }
-  input[type="number"] { width: 120px; padding: .6rem; border-radius: 10px; border: 1px solid #ccc; }
-  .actions { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: .75rem; }
-  button { padding: .8rem 1rem; border: 0; border-radius: 10px; cursor: pointer; }
-  .muted { color: #666; font-size: .95rem; }
-  .row { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; margin-top: 1rem; }
-  .side-stack { display: grid; gap: 1rem; }
-  .setup-row { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-top: .5rem; }
-  @media (max-width: 820px) { .row { grid-template-columns: 1fr; } }
-    <style>
-.meta-box h1, .meta-box h2, .meta-box h3 {
-  margin-top: 0.6em;
-  margin-bottom: 0.4em;
-}
+    .meta-box h1, .meta-box h2, .meta-box h3 {
+      margin-top: 0.6em;
+      margin-bottom: 0.4em;
+    }
 
-.meta-box p {
-  margin: 0.4em 0;
-}
+    .meta-box p {
+      margin: 0.4em 0;
+    }
 
-.meta-box ul {
-  padding-left: 1.2em;
-}
+    .meta-box ul {
+      padding-left: 1.2em;
+    }
 
-.meta-box strong {
-  font-weight: 600;
-}
-</style>
+    .meta-box strong {
+      font-weight: 600;
+    }
+
+    textarea { width: 100%; min-height: 110px; box-sizing: border-box; padding: .9rem; border-radius: 12px; border: 1px solid #ccc; resize: vertical; }
+    input[type="number"], select { padding: .6rem; border-radius: 10px; border: 1px solid #ccc; }
+    input[type="number"] { width: 120px; }
+    .actions { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: .75rem; }
+    button { padding: .8rem 1rem; border: 0; border-radius: 10px; cursor: pointer; }
+    .muted { color: #666; font-size: .95rem; }
+    .row { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; margin-top: 1rem; }
+    .side-stack { display: grid; gap: 1rem; }
+    .setup-row { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-top: .5rem; }
+    .scenario-goals { margin-top: .75rem; padding-left: 1.2rem; }
+    @media (max-width: 820px) { .row { grid-template-columns: 1fr; } }
+  </style>
 </head>
 <body>
   <div class="container">
     <div class="topbar">
       <div>
         <h1 style="margin-bottom:.2rem;">Psycho Multi Agent</h1>
-        <div class="muted">Beta-Bereich V3.2 · automatische Evaluation nach {{ eval_after }} Therapeuten-Zügen</div>
+        <div class="muted">Beta-Bereich · automatische Evaluation nach {{ eval_after }} Therapeuten-Zügen</div>
       </div>
       <form method="post" action="/logout">
         <button type="submit">Logout</button>
@@ -84,9 +77,18 @@
     </div>
 
     <div class="card" style="margin-top:1rem;">
-      <h3>Supervisionsintervall</h3>
-      <div class="muted">Lege fest, nach wie vielen Interventionen automatisch eine Supervision ausgelöst wird.</div>
+      <h3>Fall und Supervisionsintervall</h3>
+      <div class="muted">Beim Fallwechsel wird die laufende Sitzung zurückgesetzt.</div>
       <div class="setup-row">
+        <label for="caseSelect">Fall</label>
+        <select id="caseSelect">
+          {% for case in case_options %}
+            <option value="{{ case.id }}" {% if case.id == current_case_id %}selected{% endif %}>
+              {{ case.id }} – {{ case.title }}
+            </option>
+          {% endfor %}
+        </select>
+
         <label for="supervisionInterval">Intervall</label>
         <input
           id="supervisionInterval"
@@ -108,9 +110,14 @@
       <div class="side-stack">
         <div class="card">
           <h3>Szenario</h3>
-          <div class="muted">{{ scenario.get("title", "Training") }}</div>
-          <p>{{ scenario.get("description", "") }}</p>
+          <div id="scenarioTitle" class="muted">{{ scenario.get("title", "Training") }}</div>
+          <p id="scenarioDescription">{{ scenario.get("description", "") }}</p>
           <div class="muted">Bitte keine echten Patientendaten eingeben.</div>
+          <ul id="scenarioGoals" class="scenario-goals">
+            {% for goal in scenario.get("learning_goals", []) %}
+              <li>{{ goal }}</li>
+            {% endfor %}
+          </ul>
         </div>
 
         <div class="card">
@@ -136,6 +143,7 @@
       <div id="status" class="muted" style="margin-top:.75rem;"></div>
     </div>
   </div>
+
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="/static/app.js"></script>
 </body>
