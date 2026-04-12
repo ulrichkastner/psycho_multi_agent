@@ -33,6 +33,86 @@ function renderMarkdown(text) {
   return marked.parse(text);
 }
 
+function buildSupervisionAccordion(markdownText) {
+  const rawHtml = renderMarkdown(markdownText || "");
+  if (!rawHtml.trim()) {
+    return "Noch keine Supervision vorhanden.";
+  }
+
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = rawHtml;
+
+  const nodes = Array.from(wrapper.childNodes);
+  const sections = [];
+  let currentSection = null;
+
+  for (const node of nodes) {
+    if (
+      node.nodeType === Node.ELEMENT_NODE &&
+      /^H[1-6]$/.test(node.tagName)
+    ) {
+      currentSection = {
+        heading: node.textContent.trim(),
+        headingTag: node.tagName.toLowerCase(),
+        content: [],
+      };
+      sections.push(currentSection);
+    } else {
+      if (!currentSection) {
+        currentSection = {
+          heading: "",
+          headingTag: "h3",
+          content: [],
+        };
+        sections.push(currentSection);
+      }
+      currentSection.content.push(node.cloneNode(true));
+    }
+  }
+
+  if (sections.length === 0) {
+    return rawHtml;
+  }
+
+  const out = document.createElement("div");
+
+  sections.forEach((section, index) => {
+    const hasHeading = section.heading && section.heading.length > 0;
+
+    if (index === 0) {
+      const openBlock = document.createElement("div");
+      openBlock.className = "supervision-section-open";
+
+      if (hasHeading) {
+        const h = document.createElement(section.headingTag || "h3");
+        h.textContent = section.heading;
+        openBlock.appendChild(h);
+      }
+
+      section.content.forEach((child) => openBlock.appendChild(child));
+      out.appendChild(openBlock);
+      return;
+    }
+
+    const accWrap = document.createElement("div");
+    accWrap.className = "supervision-accordion";
+
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = hasHeading ? section.heading : `Abschnitt ${index + 1}`;
+
+    const body = document.createElement("div");
+    body.className = "accordion-body";
+    section.content.forEach((child) => body.appendChild(child));
+
+    details.appendChild(summary);
+    details.appendChild(body);
+    accWrap.appendChild(details);
+    out.appendChild(accWrap);
+  });
+
+  return out.innerHTML;
+}
 function appendMessage(kind, text) {
   const div = document.createElement("div");
   div.className = `msg ${kind}`;
