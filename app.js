@@ -31,6 +31,9 @@ function renderHistory(lines) {
       appendMessage("therapist", `<strong>Therapeut</strong><br>${escapeHtml(line.replace("THERAPEUT: ", ""))}`);
     } else if (line.startsWith("PATIENTIN: ")) {
       appendMessage("patient", `<strong>Patientin</strong><br>${escapeHtml(line.replace("PATIENTIN: ", ""))}`);
+    } else {
+      // alte SUPERVISION- oder EVALUATION-Einträge bewusst nicht mehr anzeigen
+      continue;
     }
   }
 }
