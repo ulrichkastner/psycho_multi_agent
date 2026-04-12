@@ -49,5 +49,5 @@ agents:
 
 orchestration:
   evaluation_trigger:
-    - after_therapist_turns: 12
+    - after_therapist_turns: 10
       call_agent: "rater"
