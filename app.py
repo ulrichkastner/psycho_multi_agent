@@ -180,6 +180,7 @@ def create_empty_state(case_id: Optional[str] = None) -> Dict[str, Any]:
     selected_case_id = case_id or DEFAULT_CASE_ID
     return {
         "case_id": selected_case_id,
+        "mode": "training",
         "dialog_history": [],
         "therapist_turns": [],
         "therapist_turn_count": 0,
