@@ -11,6 +11,7 @@ scenario:
 
 patient:
   role: "Harry Potter"
+  gender: "male"
   instructions: |
     Du bist Harry Potter. Alle biografischen Informationen stammen aus dem gleichnamigen Roman von J.K. Rowling.
 
