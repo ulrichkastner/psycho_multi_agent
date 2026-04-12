@@ -15,6 +15,10 @@ const scenarioTitle = document.getElementById("scenarioTitle");
 const scenarioDescription = document.getElementById("scenarioDescription");
 const scenarioGoals = document.getElementById("scenarioGoals");
 
+const supervisionLabel = document.getElementById("supervisionLabel");
+const supervisionHistoryList = document.getElementById("supervisionHistoryList");
+const supervisionHistoryDetails = document.getElementById("supervisionHistoryDetails");
+
 function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text || "";
@@ -57,16 +61,18 @@ function renderHistory(lines) {
   }
 }
 
-function setSupervision(text) {
+function setSupervision(text, number = null) {
   supervisionBox.classList.remove("supervision-active");
 
   if (text && text.trim()) {
     supervisionBox.classList.remove("muted");
     supervisionBox.classList.add("supervision-active");
     supervisionBox.innerHTML = renderMarkdown(text);
+    supervisionLabel.textContent = number ? `Supervision ${number}` : "Aktuelle Supervision";
   } else {
     supervisionBox.classList.add("muted");
     supervisionBox.innerHTML = "Noch keine Supervision vorhanden.";
+    supervisionLabel.textContent = "Noch keine Supervision";
   }
 }
 
@@ -98,6 +104,46 @@ function renderScenario(scenario) {
   }
 }
 
+function renderSupervisionHistory(history) {
+  supervisionHistoryList.innerHTML = "";
+
+  if (!Array.isArray(history) || history.length <= 1) {
+    supervisionHistoryDetails.open = false;
+    return;
+  }
+
+  const previousItems = history.slice(0, -1);
+
+  for (const item of previousItems) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "supervision-history-item";
+
+    const label = document.createElement("div");
+    label.className = "history-label";
+    label.textContent = `Supervision ${item.number}`;
+
+    const box = document.createElement("div");
+    box.className = "meta-box";
+    box.innerHTML = renderMarkdown(item.text || "");
+
+    wrapper.appendChild(label);
+    wrapper.appendChild(box);
+    supervisionHistoryList.appendChild(wrapper);
+  }
+}
+
+function updateSupervisionUI(history) {
+  if (!Array.isArray(history) || history.length === 0) {
+    setSupervision("", null);
+    renderSupervisionHistory([]);
+    return;
+  }
+
+  const latest = history[history.length - 1];
+  setSupervision(latest.text || "", latest.number || history.length);
+  renderSupervisionHistory(history);
+}
+
 async function loadState() {
   try {
     const res = await fetch("/api/state");
@@ -123,7 +169,7 @@ async function loadState() {
     }
 
     renderScenario(data.scenario);
-    setSupervision(data.latest_supervision || "");
+    updateSupervisionUI(data.supervision_history || []);
     setEvaluation(data.latest_evaluation || "");
   } catch (err) {
     statusEl.textContent = "Netzwerk- oder Serverfehler beim Laden.";
@@ -168,7 +214,7 @@ async function saveSettings() {
 
     if (data.case_changed) {
       chat.innerHTML = "";
-      setSupervision("");
+      updateSupervisionUI([]);
       setEvaluation("");
     }
 
@@ -214,7 +260,7 @@ async function sendTurn() {
       `<strong>Patientin</strong><br>${escapeHtml(data.patient_reply || "")}`
     );
 
-    setSupervision(data.latest_supervision || "");
+    updateSupervisionUI(data.supervision_history || []);
     setEvaluation(data.latest_evaluation || "");
 
     statusEl.textContent = `Turn ${data.therapist_turn_count} gespeichert.`;
@@ -267,7 +313,7 @@ async function resetSession() {
     }
 
     chat.innerHTML = "";
-    setSupervision("");
+    updateSupervisionUI([]);
     setEvaluation("");
 
     if (typeof data.supervision_interval !== "undefined" && supervisionIntervalInput) {
