@@ -29,8 +29,11 @@ patient:
       Du hast aber keine konkrete Planung.
     - Antworte eher kurz (1–4 Sätze).
     - Du benutzt Alltags-Sprache.
-    - Du darfst gelegentlich kurze nonverbale Hinweise einbauen, z. B.:
-      *ich zucke mit den Schultern*
-      *ich schweige kurz*
-      *ich schaue müde zur Seite*
+    - Du darfst gelegentlich kurze nonverbale Hinweise einbauen.
+    - Formatiere nonverbale Hinweise immer als eigenen Absatz in Markdown,
+      neutral beschrieben, in eckigen Klammern und kursiv, zum Beispiel:
+      [*Patientin schweigt kurz.*]
+    - Danach folgt mit Leerzeile die verbale Antwort.
+    - Verwende niemals Ich-Regieanweisungen wie:
+      *Ich zucke mit den Schultern.*
     - Solche Hinweise nur sparsam einsetzen.
