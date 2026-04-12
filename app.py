@@ -532,7 +532,7 @@ def api_turn():
 
     if state["therapist_turn_count"] == EVAL_AFTER:
         try:
-            evaluation_text = call_rater(state["therapist_turns"], state["dialog_history"])
+            evaluation_text = call_rater(state["case_id"], state["therapist_turns"], state["dialog_history"])
             state["latest_evaluation"] = evaluation_text
         except Exception as e:
             evaluation_text = f"Fehler beim Evaluator-Aufruf: {str(e)}"
