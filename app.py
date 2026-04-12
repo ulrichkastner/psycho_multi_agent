@@ -54,13 +54,83 @@ eval_cfg = orchestration.get("evaluation_trigger", [])
 EVAL_AFTER = eval_cfg[0].get("after_therapist_turns", 12) if eval_cfg else 12
 
 
+def validate_case_config(case_data: Dict[str, Any], filename: str) -> List[str]:
+    errors: List[str] = []
+
+    if not isinstance(case_data, dict):
+        return [f"{filename}: YAML-Inhalt ist kein Dictionary."]
+
+    scenario = case_data.get("scenario")
+    patient = case_data.get("patient")
+
+    if not isinstance(scenario, dict):
+        errors.append(f"{filename}: 'scenario' fehlt oder ist kein Objekt.")
+    else:
+        if not scenario.get("id"):
+            errors.append(f"{filename}: 'scenario.id' fehlt.")
+        if not scenario.get("title"):
+            errors.append(f"{filename}: 'scenario.title' fehlt.")
+
+        gender = scenario.get("gender")
+        if gender is not None and gender not in {"male", "female", "diverse"}:
+            errors.append(
+                f"{filename}: 'scenario.gender' muss 'male', 'female' oder 'diverse' sein."
+            )
+
+        role_label = scenario.get("role_label")
+        if role_label is not None and (not isinstance(role_label, str) or not role_label.strip()):
+            errors.append(
+                f"{filename}: 'scenario.role_label' muss ein nicht-leerer String sein."
+            )
+
+    if not isinstance(patient, dict):
+        errors.append(f"{filename}: 'patient' fehlt oder ist kein Objekt.")
+    else:
+        if not patient.get("instructions"):
+            errors.append(f"{filename}: 'patient.instructions' fehlt.")
+
+    return errors
+
+
+INVALID_CASES: List[Dict[str, Any]] = []
+
+
 def discover_cases() -> Dict[str, Dict[str, Any]]:
     cases: Dict[str, Dict[str, Any]] = {}
+    seen_ids = set()
+
+    INVALID_CASES.clear()
 
     for path in sorted(CASES_DIR.glob("case_*.yaml")):
-        data = load_yaml(path)
-        scenario = data.get("scenario", {})
-        case_id = scenario.get("id") or path.stem
+        try:
+            data = load_yaml(path)
+        except Exception as e:
+            INVALID_CASES.append({
+                "file": path.name,
+                "errors": [f"{path.name}: YAML konnte nicht geladen werden: {str(e)}"]
+            })
+            continue
+
+        errors = validate_case_config(data, path.name)
+        if errors:
+            INVALID_CASES.append({
+                "file": path.name,
+                "errors": errors
+            })
+            continue
+
+        scenario = data["scenario"]
+        case_id = scenario["id"]
+
+        if case_id in seen_ids:
+            INVALID_CASES.append({
+                "file": path.name,
+                "errors": [f"{path.name}: doppelte scenario.id '{case_id}'."]
+            })
+            continue
+
+        seen_ids.add(case_id)
+
         cases[case_id] = {
             "file": path.name,
             "scenario": scenario,
@@ -73,6 +143,9 @@ def discover_cases() -> Dict[str, Dict[str, Any]]:
 CASES = discover_cases()
 DEFAULT_CASE_ID = sorted(CASES.keys())[0] if CASES else None
 
+if not CASES:
+    raise RuntimeError("Keine gültigen Fälle gefunden. Bitte YAML-Dateien in config/cases/ prüfen.")
+
 
 def get_case(case_id: Optional[str]) -> Dict[str, Any]:
     if case_id in CASES:
@@ -84,7 +157,13 @@ def get_case(case_id: Optional[str]) -> Dict[str, Any]:
 
 def get_patient_label(case_id: str) -> str:
     case = get_case(case_id)
-    gender = case["scenario"].get("gender", "female")
+    scenario = case.get("scenario", {})
+
+    role_label = scenario.get("role_label")
+    if isinstance(role_label, str) and role_label.strip():
+        return role_label.strip()
+
+    gender = scenario.get("gender", "female")
 
     if gender == "male":
         return "Patient"
@@ -384,6 +463,7 @@ def api_state():
             "supervision_history": state.get("supervision_history", []),
             "supervision_interval": state.get("supervision_interval", DEFAULT_SUPERVISION_INTERVAL),
             "patient_label": get_patient_label(state["case_id"]).upper(),
+            "invalid_cases": INVALID_CASES,
             "cases": [
                 {
                     "id": case_id,
