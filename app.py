@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -193,6 +194,81 @@ def llm_completion(system_text: str, user_text: str, temperature: float = 0.4) -
     return (response.choices[0].message.content or "").strip()
 
 
+def normalize_patient_feedback(text: str) -> str:
+    """
+    Wandelt nonverbale Einschübe in neutrales Markdown um:
+    *Ich seufze und schaue weg.*
+    ->
+    [*Patientin seufzt und schaut weg.*]
+
+    Der nonverbale Einschub steht in eigenem Absatz vor der verbalen Antwort.
+    """
+    if not text:
+        return ""
+
+    normalized = text.strip()
+
+    # Fall 1: Sternchen-Zeile am Anfang
+    match = re.match(r"^\*(.+?)\*\s*(.*)$", normalized, flags=re.DOTALL)
+    if match:
+        action_text = match.group(1).strip()
+        spoken_text = match.group(2).strip()
+
+        action_text = rewrite_action_to_neutral(action_text)
+
+        if spoken_text:
+            return f"[*{action_text}*]\n\n{spoken_text}"
+        return f"[*{action_text}*]"
+
+    # Fall 2: Schon in Klammern oder gemischt, aber mit Ich-Perspektive
+    bracket_match = re.match(r"^\[\*?(.+?)\*?\]\s*(.*)$", normalized, flags=re.DOTALL)
+    if bracket_match:
+        action_text = bracket_match.group(1).strip()
+        spoken_text = bracket_match.group(2).strip()
+
+        action_text = rewrite_action_to_neutral(action_text)
+
+        if spoken_text:
+            return f"[*{action_text}*]\n\n{spoken_text}"
+        return f"[*{action_text}*]"
+
+    return normalized
+
+
+def rewrite_action_to_neutral(action_text: str) -> str:
+    text = action_text.strip()
+
+    # führendes Ich / ich ersetzen
+    text = re.sub(r"^(ich|Ich)\s+", "Patientin ", text)
+
+    # einige häufige Formen neutralisieren
+    replacements = [
+        (r"\bPatientin bin\b", "Patientin ist"),
+        (r"\bPatientin schaue\b", "Patientin schaut"),
+        (r"\bPatientin sehe\b", "Patientin schaut"),
+        (r"\bPatientin seufze\b", "Patientin seufzt"),
+        (r"\bPatientin schweige\b", "Patientin schweigt"),
+        (r"\bPatientin zögere\b", "Patientin zögert"),
+        (r"\bPatientin wirke\b", "Patientin wirkt"),
+        (r"\bPatientin lache\b", "Patientin lacht"),
+        (r"\bPatientin presse\b", "Patientin presst"),
+        (r"\bPatientin atme\b", "Patientin atmet"),
+        (r"\bPatientin fasse\b", "Patientin fasst"),
+        (r"\bPatientin zucke\b", "Patientin zuckt"),
+    ]
+
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text)
+
+    if not text.lower().startswith("patientin "):
+        text = f"Patientin {text[0].lower() + text[1:]}" if text else "Patientin reagiert"
+
+    if text and text[-1] not in ".!?":
+        text += "."
+
+    return text
+
+
 def call_patient(case_id: str, user_text: str, dialog_history: List[str]) -> str:
     patient = get_case(case_id)["patient"]
     instructions = patient["instructions"]
@@ -205,7 +281,8 @@ def call_patient(case_id: str, user_text: str, dialog_history: List[str]) -> str
         f"{user_text}"
     )
 
-    return llm_completion(instructions, prompt, temperature=0.4)
+    raw_reply = llm_completion(instructions, prompt, temperature=0.4)
+    return normalize_patient_feedback(raw_reply)
 
 
 def call_supervisor(last_therapist_turns: List[str], last_patient_reply: Optional[str]) -> str:
