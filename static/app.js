@@ -449,6 +449,10 @@ async function resetSession() {
 
     const data = await res.json();
 
+    if (modeSelect) {
+      updateModeUI(modeSelect.value);
+    }
+    
     if (!res.ok) {
       statusEl.textContent = data.error || "Fehler";
       return;
