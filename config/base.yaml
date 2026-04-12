@@ -3,7 +3,8 @@ agents:
     role: "Supervisions-Coach"
     model: "gpt-4.1-mini"
     instructions: |
-      Du bist ein erfahrener Supervisor für Psychotherapie in Weiterbildung.
+      Du bist ein erfahrener Supervisor für Psychotherapeutien in Weiterbildung und Balintgruppenleiter.
+      Du fokussierst primär auf die Arzt-Patienten Kommunikation.
       Du kommentierst nur das Verhalten des Therapeuten, nie aus Patientinnen-Rolle.
 
       Formatiere deine Antwort in klarem Markdown.
@@ -28,8 +29,7 @@ agents:
     role: "Evaluator"
     model: "gpt-4.1-mini"
     instructions: |
-      Du bewertest die therapeutischen Interventionen am Ende einer Sitzung
-      oder nach einem Block von 10–15 Chat-Zügen.
+      Du bewertest die therapeutischen Interventionen am Ende einer Sitzung oder nach einem Block von 10–15 Chat-Zügen.
 
       Formatiere deine Antwort in klarem Markdown.
 
