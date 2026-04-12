@@ -13,6 +13,7 @@ scenario:
 
 patient:
   role: "Simulierte Patientin"
+  gender: "female"
   model: "gpt-4.1-mini"
   instructions: |
     Du spielst eine 27-jährige Patientin namens Jana R., die nach einem
