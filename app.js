@@ -5,6 +5,11 @@ const evalBtn = document.getElementById("evalBtn");
 const resetBtn = document.getElementById("resetBtn");
 const therapistText = document.getElementById("therapistText");
 
+const supervisionBox = document.getElementById("supervisionBox");
+const evaluationBox = document.getElementById("evaluationBox");
+const supervisionIntervalInput = document.getElementById("supervisionInterval");
+const saveSettingsBtn = document.getElementById("saveSettingsBtn");
+
 function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text;
@@ -26,17 +31,72 @@ function renderHistory(lines) {
       appendMessage("therapist", `<strong>Therapeut</strong><br>${escapeHtml(line.replace("THERAPEUT: ", ""))}`);
     } else if (line.startsWith("PATIENTIN: ")) {
       appendMessage("patient", `<strong>Patientin</strong><br>${escapeHtml(line.replace("PATIENTIN: ", ""))}`);
-    } else if (line.startsWith("SUPERVISION: ")) {
-      appendMessage("supervision", `<strong>Supervision</strong><br>${escapeHtml(line.replace("SUPERVISION: ", ""))}`);
     }
+  }
+}
+
+function setSupervision(text) {
+  if (text && text.trim()) {
+    supervisionBox.classList.remove("muted");
+    supervisionBox.innerHTML = escapeHtml(text);
+  } else {
+    supervisionBox.classList.add("muted");
+    supervisionBox.innerHTML = "Noch keine Supervision vorhanden.";
+  }
+}
+
+function setEvaluation(text) {
+  if (text && text.trim()) {
+    evaluationBox.classList.remove("muted");
+    evaluationBox.innerHTML = escapeHtml(text);
+  } else {
+    evaluationBox.classList.add("muted");
+    evaluationBox.innerHTML = "Noch keine Evaluation vorhanden.";
   }
 }
 
 async function loadState() {
   const res = await fetch("/api/state");
   const data = await res.json();
+
   if (data.dialog_history) {
     renderHistory(data.dialog_history);
+  }
+
+  if (typeof data.supervision_interval !== "undefined") {
+    supervisionIntervalInput.value = data.supervision_interval;
+  }
+
+  setSupervision(data.latest_supervision || "");
+  setEvaluation(data.latest_evaluation || "");
+}
+
+async function saveSettings() {
+  const interval = supervisionIntervalInput.value.trim();
+
+  saveSettingsBtn.disabled = true;
+  statusEl.textContent = "Einstellungen werden gespeichert ...";
+
+  try {
+    const res = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ supervision_interval: interval }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      statusEl.textContent = data.error || "Fehler";
+      return;
+    }
+
+    supervisionIntervalInput.value = data.supervision_interval;
+    statusEl.textContent = data.message || "Gespeichert.";
+  } catch (err) {
+    statusEl.textContent = "Netzwerk- oder Serverfehler.";
+  } finally {
+    saveSettingsBtn.disabled = false;
   }
 }
 
@@ -66,13 +126,8 @@ async function sendTurn() {
 
     appendMessage("patient", `<strong>Patientin</strong><br>${escapeHtml(data.patient_reply || "")}`);
 
-    if (data.supervision_feedback) {
-      appendMessage("supervision", `<strong>Supervision</strong><br>${escapeHtml(data.supervision_feedback)}`);
-    }
-
-    if (data.evaluation) {
-      appendMessage("evaluation", `<strong>Evaluation</strong><br>${escapeHtml(data.evaluation)}`);
-    }
+    setSupervision(data.latest_supervision || "");
+    setEvaluation(data.latest_evaluation || "");
 
     statusEl.textContent = `Turn ${data.therapist_turn_count} gespeichert.`;
   } catch (err) {
@@ -95,7 +150,7 @@ async function runEvaluation() {
       return;
     }
 
-    appendMessage("evaluation", `<strong>Evaluation</strong><br>${escapeHtml(data.evaluation_text || "")}`);
+    setEvaluation(data.evaluation_text || "");
     statusEl.textContent = "Evaluation abgeschlossen.";
   } catch (err) {
     statusEl.textContent = "Netzwerk- oder Serverfehler.";
@@ -118,6 +173,13 @@ async function resetSession() {
     }
 
     chat.innerHTML = "";
+    setSupervision("");
+    setEvaluation("");
+
+    if (typeof data.supervision_interval !== "undefined") {
+      supervisionIntervalInput.value = data.supervision_interval;
+    }
+
     statusEl.textContent = data.message || "Zurückgesetzt.";
   } catch (err) {
     statusEl.textContent = "Netzwerk- oder Serverfehler.";
@@ -129,6 +191,7 @@ async function resetSession() {
 sendBtn.addEventListener("click", sendTurn);
 evalBtn.addEventListener("click", runEvaluation);
 resetBtn.addEventListener("click", resetSession);
+saveSettingsBtn.addEventListener("click", saveSettings);
 
 therapistText.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
