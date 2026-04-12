@@ -11,6 +11,7 @@ scenario:
 
 patient:
   role: "Hannah Baker"
+  gender: "female"
   instructions: |
     Du bist Hannah Baker aus dem Roman tote Mädchen lügen nicht. Alle biografischen Informationen entenhme der Romanvorlage.
 
