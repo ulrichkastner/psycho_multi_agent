@@ -95,6 +95,7 @@ def create_empty_state(case_id: Optional[str] = None) -> Dict[str, Any]:
         "last_patient_reply": None,
         "latest_supervision": None,
         "latest_evaluation": None,
+        "supervision_history": [],
         "supervision_interval": DEFAULT_SUPERVISION_INTERVAL,
     }
 
@@ -137,6 +138,8 @@ def load_state() -> Dict[str, Any]:
         state["latest_supervision"] = None
     if "latest_evaluation" not in state:
         state["latest_evaluation"] = None
+    if "supervision_history" not in state:
+        state["supervision_history"] = []
     if "supervision_interval" not in state:
         state["supervision_interval"] = DEFAULT_SUPERVISION_INTERVAL
 
@@ -292,6 +295,7 @@ def api_state():
             "therapist_turn_count": state["therapist_turn_count"],
             "latest_supervision": state.get("latest_supervision"),
             "latest_evaluation": state.get("latest_evaluation"),
+            "supervision_history": state.get("supervision_history", []),
             "supervision_interval": state.get("supervision_interval", DEFAULT_SUPERVISION_INTERVAL),
             "cases": [
                 {
@@ -415,9 +419,17 @@ def api_turn():
                 state["last_patient_reply"],
             )
             state["latest_supervision"] = supervision_feedback
+            state["supervision_history"].append({
+                "number": len(state["supervision_history"]) + 1,
+                "text": supervision_feedback
+            })
         except Exception as e:
             supervision_feedback = f"Fehler beim Supervisor-Aufruf: {str(e)}"
             state["latest_supervision"] = supervision_feedback
+            state["supervision_history"].append({
+                "number": len(state["supervision_history"]) + 1,
+                "text": supervision_feedback
+            })
 
     if state["therapist_turn_count"] == EVAL_AFTER:
         try:
@@ -437,6 +449,7 @@ def api_turn():
             "therapist_turn_count": state["therapist_turn_count"],
             "latest_supervision": state.get("latest_supervision"),
             "latest_evaluation": state.get("latest_evaluation"),
+            "supervision_history": state.get("supervision_history", []),
             "supervision_interval": supervision_interval,
             "case_id": state["case_id"],
         }
