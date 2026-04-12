@@ -25,7 +25,7 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", "replace-me-with-a-long-random-se
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=False,  # auf True setzen, falls gewünscht
+    SESSION_COOKIE_SECURE=False,
 )
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -44,7 +44,7 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 BETA_PASSWORD = os.getenv("BETA_PASSWORD", "change-me")
 MAX_TURNS = int(os.getenv("MAX_TURNS", "20"))
 MAX_INPUT_LENGTH = int(os.getenv("MAX_INPUT_LENGTH", "3000"))
-SUPERVISOR_EVERY_N_TURNS = 2
+DEFAULT_SUPERVISION_INTERVAL = int(os.getenv("DEFAULT_SUPERVISION_INTERVAL", "5"))
 MAX_HISTORY_LINES = 40
 
 
@@ -58,6 +58,9 @@ def create_empty_state() -> Dict[str, Any]:
         "therapist_turns": [],
         "therapist_turn_count": 0,
         "last_patient_reply": None,
+        "latest_supervision": None,
+        "latest_evaluation": None,
+        "supervision_interval": DEFAULT_SUPERVISION_INTERVAL,
     }
 
 
@@ -80,11 +83,20 @@ def load_state() -> Dict[str, Any]:
 
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            state = json.load(f)
     except Exception:
         state = create_empty_state()
         save_state(state)
         return state
+
+    if "latest_supervision" not in state:
+        state["latest_supervision"] = None
+    if "latest_evaluation" not in state:
+        state["latest_evaluation"] = None
+    if "supervision_interval" not in state:
+        state["supervision_interval"] = DEFAULT_SUPERVISION_INTERVAL
+
+    return state
 
 
 def save_state(state: Dict[str, Any]) -> None:
@@ -185,7 +197,12 @@ def index():
     gate = require_login()
     if gate:
         return gate
-    return render_template("index.html", scenario=scenario, eval_after=EVAL_AFTER)
+    return render_template(
+        "index.html",
+        scenario=scenario,
+        eval_after=EVAL_AFTER,
+        default_supervision_interval=DEFAULT_SUPERVISION_INTERVAL,
+    )
 
 
 @app.route("/api/state", methods=["GET"])
@@ -198,6 +215,38 @@ def api_state():
         {
             "dialog_history": state["dialog_history"],
             "therapist_turn_count": state["therapist_turn_count"],
+            "latest_supervision": state.get("latest_supervision"),
+            "latest_evaluation": state.get("latest_evaluation"),
+            "supervision_interval": state.get("supervision_interval", DEFAULT_SUPERVISION_INTERVAL),
+        }
+    )
+
+
+@app.route("/api/settings", methods=["POST"])
+def api_settings():
+    if not is_logged_in():
+        return jsonify({"error": "Nicht autorisiert"}), 401
+
+    state = load_state()
+    data = request.get_json(force=True) or {}
+
+    interval = data.get("supervision_interval", DEFAULT_SUPERVISION_INTERVAL)
+    try:
+        interval = int(interval)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Supervisionsintervall muss eine ganze Zahl sein."}), 400
+
+    if interval < 1 or interval > 50:
+        return jsonify({"error": "Supervisionsintervall muss zwischen 1 und 50 liegen."}), 400
+
+    state["supervision_interval"] = interval
+    save_state(state)
+
+    return jsonify(
+        {
+            "ok": True,
+            "supervision_interval": interval,
+            "message": f"Supervisionsintervall auf {interval} gesetzt."
         }
     )
 
@@ -207,11 +256,12 @@ def api_reset():
     if not is_logged_in():
         return jsonify({"error": "Nicht autorisiert"}), 401
 
-    reset_state()
+    state = reset_state()
     return jsonify(
         {
             "ok": True,
-            "message": "Sitzung zurückgesetzt. Beginne mit einer neuen offenen Frage an Laura."
+            "message": "Sitzung zurückgesetzt. Beginne mit einer neuen offenen Frage an Laura.",
+            "supervision_interval": state["supervision_interval"],
         }
     )
 
@@ -251,21 +301,27 @@ def api_turn():
     supervision_feedback = None
     evaluation_text = None
 
-    if state["therapist_turn_count"] % SUPERVISOR_EVERY_N_TURNS == 0:
+    supervision_interval = int(state.get("supervision_interval", DEFAULT_SUPERVISION_INTERVAL))
+
+    if state["therapist_turn_count"] % supervision_interval == 0:
         try:
+            last_n = min(supervision_interval, len(state["therapist_turns"]))
             supervision_feedback = call_supervisor(
-                state["therapist_turns"][-2:],
+                state["therapist_turns"][-last_n:],
                 state["last_patient_reply"],
             )
-            state["dialog_history"].append(f"SUPERVISION: {supervision_feedback}")
+            state["latest_supervision"] = supervision_feedback
         except Exception as e:
             supervision_feedback = f"Fehler beim Supervisor-Aufruf: {str(e)}"
+            state["latest_supervision"] = supervision_feedback
 
     if state["therapist_turn_count"] == EVAL_AFTER:
         try:
             evaluation_text = call_rater(state["therapist_turns"], state["dialog_history"])
+            state["latest_evaluation"] = evaluation_text
         except Exception as e:
             evaluation_text = f"Fehler beim Evaluator-Aufruf: {str(e)}"
+            state["latest_evaluation"] = evaluation_text
 
     save_state(state)
 
@@ -275,6 +331,9 @@ def api_turn():
             "supervision_feedback": supervision_feedback,
             "evaluation": evaluation_text,
             "therapist_turn_count": state["therapist_turn_count"],
+            "latest_supervision": state.get("latest_supervision"),
+            "latest_evaluation": state.get("latest_evaluation"),
+            "supervision_interval": supervision_interval,
         }
     )
 
@@ -288,6 +347,8 @@ def api_evaluation():
 
     try:
         evaluation_text = call_rater(state["therapist_turns"], state["dialog_history"])
+        state["latest_evaluation"] = evaluation_text
+        save_state(state)
     except Exception as e:
         return jsonify({"error": f"Fehler beim Evaluator-Aufruf: {str(e)}"}), 500
 
