@@ -147,7 +147,7 @@ function setSupervision(text, number = null) {
   if (text && text.trim()) {
     supervisionBox.classList.remove("muted");
     supervisionBox.classList.add("supervision-active");
-    supervisionBox.innerHTML = renderMarkdown(text);
+    supervisionBox.innerHTML = buildSupervisionAccordion(text);
     supervisionLabel.textContent = number ? `Supervision ${number}` : "Aktuelle Supervision";
   } else {
     supervisionBox.classList.add("muted");
