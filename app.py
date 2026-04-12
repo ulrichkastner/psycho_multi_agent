@@ -483,7 +483,7 @@ def api_state():
 def api_settings():
     if not is_logged_in():
         return jsonify({"error": "Nicht autorisiert"}), 401
-
+    mode = data.get("mode", state.get("mode", "training"))
     state = load_state()
     data = request.get_json(force=True) or {}
 
