@@ -10,6 +10,10 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from openai import OpenAI
 
+# ---------------------------------------------------
+# Setup
+# ---------------------------------------------------
+
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = BASE_DIR / "config"
 BASE_CONFIG_PATH = CONFIG_DIR / "base.yaml"
@@ -23,68 +27,53 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 load_dotenv(BASE_DIR / ".env")
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "replace-me-with-a-long-random-secret")
-
-app.config.update(
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=False,
-)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "replace-me")
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-BETA_PASSWORD = os.getenv("BETA_PASSWORD", "change-me")
-MAX_TURNS = int(os.getenv("MAX_TURNS", "20"))
-MAX_INPUT_LENGTH = int(os.getenv("MAX_INPUT_LENGTH", "3000"))
-DEFAULT_SUPERVISION_INTERVAL = int(os.getenv("DEFAULT_SUPERVISION_INTERVAL", "5"))
+DEFAULT_SUPERVISION_INTERVAL = 5
 MAX_HISTORY_LINES = 40
 
+# ---------------------------------------------------
+# Load config
+# ---------------------------------------------------
 
 def load_yaml(path: Path) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
-
 base_config = load_yaml(BASE_CONFIG_PATH)
 base_agents = base_config["agents"]
-orchestration = base_config.get("orchestration", {})
 
-eval_cfg = orchestration.get("evaluation_trigger", [])
-EVAL_AFTER = eval_cfg[0].get("after_therapist_turns", 12) if eval_cfg else 12
+# ---------------------------------------------------
+# Cases
+# ---------------------------------------------------
 
-
-def discover_cases() -> Dict[str, Dict[str, Any]]:
-    cases: Dict[str, Dict[str, Any]] = {}
-
+def discover_cases():
+    cases = {}
     for path in sorted(CASES_DIR.glob("case_*.yaml")):
         data = load_yaml(path)
         scenario = data.get("scenario", {})
         case_id = scenario.get("id") or path.stem
         cases[case_id] = {
-            "file": path.name,
             "scenario": scenario,
             "patient": data["patient"],
         }
-
     return cases
 
-
 CASES = discover_cases()
-DEFAULT_CASE_ID = sorted(CASES.keys())[0] if CASES else None
+DEFAULT_CASE_ID = list(CASES.keys())[0]
 
+def get_case(case_id):
+    return CASES.get(case_id, CASES[DEFAULT_CASE_ID])
 
-def get_case(case_id: Optional[str]) -> Dict[str, Any]:
-    if case_id in CASES:
-        return CASES[case_id]
-    if DEFAULT_CASE_ID:
-        return CASES[DEFAULT_CASE_ID]
-    raise RuntimeError("Keine Fälle gefunden.")
+# ---------------------------------------------------
+# Gender handling
+# ---------------------------------------------------
 
-
-def get_patient_label(case_id: str) -> str:
-    case = get_case(case_id)
-    gender = case["scenario"].get("gender", "female")
+def get_patient_label(case_id):
+    gender = get_case(case_id)["scenario"].get("gender", "female")
 
     if gender == "male":
         return "Patient"
@@ -92,487 +81,183 @@ def get_patient_label(case_id: str) -> str:
         return "Patient:in"
     return "Patientin"
 
+# ---------------------------------------------------
+# Session
+# ---------------------------------------------------
 
-def _session_file(session_id: str) -> Path:
-    return SESSIONS_DIR / f"{session_id}.json"
+def session_file():
+    sid = session.get("id")
+    if not sid:
+        sid = str(uuid.uuid4())
+        session["id"] = sid
+    return SESSIONS_DIR / f"{sid}.json"
 
+def load_state():
+    path = session_file()
+    if not path.exists():
+        return create_state()
 
-def create_empty_state(case_id: Optional[str] = None) -> Dict[str, Any]:
-    selected_case_id = case_id or DEFAULT_CASE_ID
+    with open(path, "r") as f:
+        return json.load(f)
+
+def save_state(state):
+    with open(session_file(), "w") as f:
+        json.dump(state, f, indent=2)
+
+def create_state(case_id=None):
     return {
-        "case_id": selected_case_id,
+        "case_id": case_id or DEFAULT_CASE_ID,
         "dialog_history": [],
         "therapist_turns": [],
         "therapist_turn_count": 0,
-        "last_patient_reply": None,
+        "supervision_history": [],
         "latest_supervision": None,
         "latest_evaluation": None,
-        "supervision_history": [],
         "supervision_interval": DEFAULT_SUPERVISION_INTERVAL,
     }
 
+# ---------------------------------------------------
+# Text normalization
+# ---------------------------------------------------
 
-def get_session_id() -> str:
-    sid = session.get("chat_session_id")
-    if not sid:
-        sid = str(uuid.uuid4())
-        session["chat_session_id"] = sid
-    return sid
-
-
-def save_state(state: Dict[str, Any]) -> None:
-    sid = get_session_id()
-    path = _session_file(sid)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
-
-
-def load_state() -> Dict[str, Any]:
-    sid = get_session_id()
-    path = _session_file(sid)
-
-    if not path.exists():
-        state = create_empty_state()
-        save_state(state)
-        return state
-
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            state = json.load(f)
-    except Exception:
-        state = create_empty_state()
-        save_state(state)
-        return state
-
-    if "case_id" not in state or state["case_id"] not in CASES:
-        state["case_id"] = DEFAULT_CASE_ID
-    if "latest_supervision" not in state:
-        state["latest_supervision"] = None
-    if "latest_evaluation" not in state:
-        state["latest_evaluation"] = None
-    if "supervision_history" not in state:
-        state["supervision_history"] = []
-    if "supervision_interval" not in state:
-        state["supervision_interval"] = DEFAULT_SUPERVISION_INTERVAL
-
-    cleaned_history = []
-    latest_supervision = state.get("latest_supervision")
-    latest_evaluation = state.get("latest_evaluation")
-
-    for line in state.get("dialog_history", []):
-        if isinstance(line, str) and line.startswith("SUPERVISION: "):
-            if not latest_supervision:
-                latest_supervision = line.replace("SUPERVISION: ", "", 1)
-            continue
-        if isinstance(line, str) and line.startswith("EVALUATION: "):
-            if not latest_evaluation:
-                latest_evaluation = line.replace("EVALUATION: ", "", 1)
-            continue
-        cleaned_history.append(line)
-
-    state["dialog_history"] = cleaned_history
-    state["latest_supervision"] = latest_supervision
-    state["latest_evaluation"] = latest_evaluation
-
-    return state
-
-
-def reset_state(case_id: Optional[str] = None) -> Dict[str, Any]:
-    state = create_empty_state(case_id=case_id)
-    save_state(state)
-    return state
-
-
-def is_logged_in() -> bool:
-    return session.get("beta_logged_in", False) is True
-
-
-def require_login():
-    if not is_logged_in():
-        return redirect(url_for("login"))
-    return None
-
-
-def llm_completion(system_text: str, user_text: str, temperature: float = 0.4) -> str:
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": system_text},
-            {"role": "user", "content": user_text},
-        ],
-        temperature=temperature,
-    )
-    return (response.choices[0].message.content or "").strip()
-
-
-def rewrite_action_to_neutral(action_text: str, case_id: str) -> str:
+def rewrite_action(text, case_id):
     label = get_patient_label(case_id)
-    text = action_text.strip()
 
-    text = re.sub(r"^(ich|Ich)\s+", f"{label} ", text)
+    text = re.sub(r"^(Ich|ich)\s+", f"{label} ", text)
 
-    replacements = [
-        (rf"\b{re.escape(label)} bin\b", f"{label} ist"),
-        (rf"\b{re.escape(label)} schaue\b", f"{label} schaut"),
-        (rf"\b{re.escape(label)} sehe\b", f"{label} schaut"),
-        (rf"\b{re.escape(label)} seufze\b", f"{label} seufzt"),
-        (rf"\b{re.escape(label)} schweige\b", f"{label} schweigt"),
-        (rf"\b{re.escape(label)} zögere\b", f"{label} zögert"),
-        (rf"\b{re.escape(label)} wirke\b", f"{label} wirkt"),
-        (rf"\b{re.escape(label)} lache\b", f"{label} lacht"),
-        (rf"\b{re.escape(label)} presse\b", f"{label} presst"),
-        (rf"\b{re.escape(label)} atme\b", f"{label} atmet"),
-        (rf"\b{re.escape(label)} fasse\b", f"{label} fasst"),
-        (rf"\b{re.escape(label)} zucke\b", f"{label} zuckt"),
-        (rf"\b{re.escape(label)} spiele\b", f"{label} spielt"),
-        (rf"\b{re.escape(label)} blicke\b", f"{label} blickt"),
-        (rf"\b{re.escape(label)} schaue wieder weg\b", f"{label} schaut wieder weg"),
-    ]
+    verbs = {
+        "seufze": "seufzt",
+        "schaue": "schaut",
+        "blicke": "blickt",
+        "zögere": "zögert",
+        "schweige": "schweigt"
+    }
 
-    for pattern, replacement in replacements:
-        text = re.sub(pattern, replacement, text)
+    for k, v in verbs.items():
+        text = re.sub(rf"\b{k}\b", v, text)
 
     if not text.lower().startswith(label.lower()):
-        text = f"{label} {text[0].lower() + text[1:]}" if text else f"{label} reagiert"
-
-    if text and text[-1] not in ".!?":
-        text += "."
+        text = f"{label} {text}"
 
     return text
 
+def normalize(text, case_id):
+    m = re.match(r"\*(.+?)\*\s*(.*)", text, re.DOTALL)
+    if m:
+        action = rewrite_action(m.group(1), case_id)
+        spoken = m.group(2)
+        return f"[*{action}*]\n\n{spoken}"
+    return text
 
-def normalize_patient_feedback(text: str, case_id: str) -> str:
-    """
-    Wandelt nonverbale Einschübe in neutrales Markdown um:
-    *Ich seufze und schaue weg.*
-    ->
-    [*Patientin seufzt und schaut weg.*]
+# ---------------------------------------------------
+# LLM Calls
+# ---------------------------------------------------
 
-    Der nonverbale Einschub steht in eigenem Absatz vor der verbalen Antwort.
-    """
-    if not text:
-        return ""
-
-    normalized = text.strip()
-
-    match = re.match(r"^\*(.+?)\*\s*(.*)$", normalized, flags=re.DOTALL)
-    if match:
-        action_text = match.group(1).strip()
-        spoken_text = match.group(2).strip()
-
-        action_text = rewrite_action_to_neutral(action_text, case_id)
-
-        if spoken_text:
-            return f"[*{action_text}*]\n\n{spoken_text}"
-        return f"[*{action_text}*]"
-
-    bracket_match = re.match(r"^\[\*?(.+?)\*?\]\s*(.*)$", normalized, flags=re.DOTALL)
-    if bracket_match:
-        action_text = bracket_match.group(1).strip()
-        spoken_text = bracket_match.group(2).strip()
-
-        action_text = rewrite_action_to_neutral(action_text, case_id)
-
-        if spoken_text:
-            return f"[*{action_text}*]\n\n{spoken_text}"
-        return f"[*{action_text}*]"
-
-    return normalized
-
-
-def call_patient(case_id: str, user_text: str, dialog_history: List[str]) -> str:
-    patient = get_case(case_id)["patient"]
-    instructions = patient["instructions"]
-
-    history_text = "\n".join(dialog_history[-MAX_HISTORY_LINES:])
-    prompt = (
-        "Bisheriger Dialog:\n"
-        f"{history_text}\n\n"
-        "Aktueller Beitrag, auf den du reagieren sollst:\n"
-        f"{user_text}"
+def llm(system, user):
+    r = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        temperature=0.4,
     )
+    return r.choices[0].message.content.strip()
 
-    raw_reply = llm_completion(instructions, prompt, temperature=0.4)
-    return normalize_patient_feedback(raw_reply, case_id)
+def call_patient(case_id, text, history):
+    case = get_case(case_id)
+    system = case["patient"]["instructions"]
+    prompt = "\n".join(history[-MAX_HISTORY_LINES:]) + "\n\n" + text
+    return normalize(llm(system, prompt), case_id)
 
-
-def call_supervisor(case_id: str, last_therapist_turns: List[str], last_patient_reply: Optional[str]) -> str:
+def call_supervisor(case_id, turns, reply):
     label = get_patient_label(case_id)
-    instructions = base_agents["supervisor"]["instructions"]
+    system = base_agents["supervisor"]["instructions"]
+    system = system.replace("Patientin", label)
 
-    instructions = instructions.replace("Patientinnen-Rolle", f"{label}-Rolle")
-    instructions = instructions.replace("Patientin", label)
-    instructions = instructions.replace("patientin", label.lower())
+    text = "\n".join(turns)
+    if reply:
+        text += "\n\n" + reply
 
-    text = "Letzte Interventionen des Therapeuten:\n"
-    for t in last_therapist_turns:
-        text += f"- {t}\n"
+    return llm(system, text)
 
-    if last_patient_reply:
-        text += f"\nLetzte Antwort von {label.lower()}:\n{last_patient_reply}\n"
-
-    return llm_completion(instructions, text, temperature=0.4)
-
-
-def call_rater(case_id: str, full_therapist_transcript: List[str], full_dialog: List[str]) -> str:
+def call_rater(case_id, turns, dialog):
     label = get_patient_label(case_id)
-    instructions = base_agents["rater"]["instructions"]
+    system = base_agents["rater"]["instructions"]
+    system = system.replace("Patientin", label)
 
-    instructions = instructions.replace("Patientin", label)
-    instructions = instructions.replace("patientin", label.lower())
-    instructions = instructions.replace("Patientinnen", label)
+    text = "\n".join(dialog[-80:])
+    return llm(system, text)
 
-    text = "Gesamter Dialog:\n" + "\n".join(full_dialog[-80:]) + "\n\n"
-    text += f"Rollenbezeichnung im Fall: {label}\n\n"
-    text += "Therapeuten-Interventionen im Überblick:\n"
-    for i, t in enumerate(full_therapist_transcript, start=1):
-        text += f"{i}. {t}\n"
-
-    return llm_completion(instructions, text, temperature=0.3)
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    error = None
-    if request.method == "POST":
-        password = request.form.get("password", "").strip()
-        if password == BETA_PASSWORD:
-            session["beta_logged_in"] = True
-            get_session_id()
-            return redirect(url_for("index"))
-        error = "Falsches Passwort."
-    return render_template("login.html", error=error)
-
-
-@app.route("/logout", methods=["POST"])
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
-
+# ---------------------------------------------------
+# Routes
+# ---------------------------------------------------
 
 @app.route("/")
 def index():
-    gate = require_login()
-    if gate:
-        return gate
-
     state = load_state()
+    return render_template("index.html", scenario=get_case(state["case_id"])["scenario"])
 
-    case_options = [
-        {
-            "id": case_id,
-            "title": case_data["scenario"].get("title", case_id),
-        }
-        for case_id, case_data in sorted(CASES.items())
-    ]
-
-    current_case = get_case(state["case_id"])
-
-    return render_template(
-        "index.html",
-        scenario=current_case["scenario"],
-        eval_after=EVAL_AFTER,
-        default_supervision_interval=DEFAULT_SUPERVISION_INTERVAL,
-        case_options=case_options,
-        current_case_id=state["case_id"],
-    )
-
-
-@app.route("/api/state", methods=["GET"])
-def api_state():
-    if not is_logged_in():
-        return jsonify({"error": "Nicht autorisiert"}), 401
-
-    state = load_state()
-    current_case = get_case(state["case_id"])
-
-    return jsonify(
-        {
-            "case_id": state["case_id"],
-            "scenario": current_case["scenario"],
-            "dialog_history": state["dialog_history"],
-            "therapist_turn_count": state["therapist_turn_count"],
-            "latest_supervision": state.get("latest_supervision"),
-            "latest_evaluation": state.get("latest_evaluation"),
-            "supervision_history": state.get("supervision_history", []),
-            "supervision_interval": state.get("supervision_interval", DEFAULT_SUPERVISION_INTERVAL),
-            "cases": [
-                {
-                    "id": case_id,
-                    "title": case_data["scenario"].get("title", case_id),
-                }
-                for case_id, case_data in sorted(CASES.items())
-            ],
-        }
-    )
-
-
-@app.route("/api/settings", methods=["POST"])
-def api_settings():
-    if not is_logged_in():
-        return jsonify({"error": "Nicht autorisiert"}), 401
-
-    state = load_state()
-    data = request.get_json(force=True) or {}
-
-    interval = data.get("supervision_interval", DEFAULT_SUPERVISION_INTERVAL)
-    case_id = data.get("case_id", state["case_id"])
-
-    try:
-        interval = int(interval)
-    except (TypeError, ValueError):
-        return jsonify({"error": "Supervisionsintervall muss eine ganze Zahl sein."}), 400
-
-    if interval < 1 or interval > 50:
-        return jsonify({"error": "Supervisionsintervall muss zwischen 1 und 50 liegen."}), 400
-
-    if case_id not in CASES:
-        return jsonify({"error": "Ungültiger Fall."}), 400
-
-    case_changed = case_id != state["case_id"]
-
-    if case_changed:
-        state = create_empty_state(case_id=case_id)
-
-    state["supervision_interval"] = interval
-    save_state(state)
-
-    current_case = get_case(state["case_id"])
-
-    return jsonify(
-        {
-            "ok": True,
-            "case_changed": case_changed,
-            "case_id": state["case_id"],
-            "scenario": current_case["scenario"],
-            "supervision_interval": interval,
-            "message": (
-                f"Fall gewechselt und Sitzung zurückgesetzt. Supervisionsintervall auf {interval} gesetzt."
-                if case_changed
-                else f"Supervisionsintervall auf {interval} gesetzt."
-            ),
-        }
-    )
-
-
-@app.route("/api/reset", methods=["POST"])
-def api_reset():
-    if not is_logged_in():
-        return jsonify({"error": "Nicht autorisiert"}), 401
-
-    state = load_state()
-    state = reset_state(case_id=state["case_id"])
-
-    return jsonify(
-        {
-            "ok": True,
-            "message": "Sitzung zurückgesetzt.",
-            "case_id": state["case_id"],
-            "supervision_interval": state["supervision_interval"],
-        }
-    )
-
+@app.route("/api/state")
+def state():
+    s = load_state()
+    return jsonify(s)
 
 @app.route("/api/turn", methods=["POST"])
-def api_turn():
-    if not is_logged_in():
-        return jsonify({"error": "Nicht autorisiert"}), 401
+def turn():
+    s = load_state()
+    text = request.json["text"]
 
-    state = load_state()
-    data = request.get_json(force=True) or {}
-    therapist_text = (data.get("text") or "").strip()
+    s["therapist_turn_count"] += 1
+    s["therapist_turns"].append(text)
+    s["dialog_history"].append(f"THERAPEUT: {text}")
 
-    if not therapist_text:
-        return jsonify({"error": "Text fehlt"}), 400
+    reply = call_patient(s["case_id"], text, s["dialog_history"])
 
-    if len(therapist_text) > MAX_INPUT_LENGTH:
-        return jsonify({"error": f"Eingabe zu lang. Maximal {MAX_INPUT_LENGTH} Zeichen."}), 400
+    label = get_patient_label(s["case_id"]).upper()
+    s["dialog_history"].append(f"{label}: {reply}")
 
-    if state["therapist_turn_count"] >= MAX_TURNS:
-        return jsonify({
-            "error": f"Maximale Anzahl an Therapeuten-Zügen ({MAX_TURNS}) erreicht. Bitte Evaluation nutzen oder Sitzung zurücksetzen."
-        }), 400
+    supervision = None
+    if s["therapist_turn_count"] % s["supervision_interval"] == 0:
+        supervision = call_supervisor(
+            s["case_id"],
+            s["therapist_turns"][-3:],
+            reply
+        )
+        s["latest_supervision"] = supervision
+        s["supervision_history"].append({
+            "number": len(s["supervision_history"]) + 1,
+            "text": supervision
+        })
 
-    state["therapist_turn_count"] += 1
-    state["therapist_turns"].append(therapist_text)
-    state["dialog_history"].append(f"THERAPEUT: {therapist_text}")
+    save_state(s)
 
-    try:
-        patient_reply = call_patient(state["case_id"], therapist_text, state["dialog_history"])
-    except Exception as e:
-        return jsonify({"error": f"Fehler beim Aufruf der Patient:in: {str(e)}"}), 500
-
-    patient_label = get_patient_label(state["case_id"]).upper()
-    state["last_patient_reply"] = patient_reply
-    state["dialog_history"].append(f"{patient_label}: {patient_reply}")
-
-    supervision_feedback = None
-    evaluation_text = None
-
-    supervision_interval = int(state.get("supervision_interval", DEFAULT_SUPERVISION_INTERVAL))
-
-    if state["therapist_turn_count"] % supervision_interval == 0:
-        try:
-            last_n = min(supervision_interval, len(state["therapist_turns"]))
-            supervision_feedback = call_supervisor(
-                state["case_id"],
-                state["therapist_turns"][-last_n:],
-                state["last_patient_reply"],
-            )
-            state["latest_supervision"] = supervision_feedback
-            state["supervision_history"].append({
-                "number": len(state["supervision_history"]) + 1,
-                "text": supervision_feedback
-            })
-        except Exception as e:
-            supervision_feedback = f"Fehler beim Supervisor-Aufruf: {str(e)}"
-            state["latest_supervision"] = supervision_feedback
-            state["supervision_history"].append({
-                "number": len(state["supervision_history"]) + 1,
-                "text": supervision_feedback
-            })
-
-    if state["therapist_turn_count"] == EVAL_AFTER:
-        try:
-            evaluation_text = call_rater(state["case_id"], state["therapist_turns"], state["dialog_history"])
-            state["latest_evaluation"] = evaluation_text
-        except Exception as e:
-            evaluation_text = f"Fehler beim Evaluator-Aufruf: {str(e)}"
-            state["latest_evaluation"] = evaluation_text
-
-    save_state(state)
-
-    return jsonify(
-        {
-            "patient_reply": patient_reply,
-            "patient_label": get_patient_label(state["case_id"]).upper(),
-            "supervision_feedback": supervision_feedback,
-            "evaluation": evaluation_text,
-            "therapist_turn_count": state["therapist_turn_count"],
-            "latest_supervision": state.get("latest_supervision"),
-            "latest_evaluation": state.get("latest_evaluation"),
-            "supervision_history": state.get("supervision_history", []),
-            "supervision_interval": supervision_interval,
-            "case_id": state["case_id"],
-        }
-    )
-
+    return jsonify({
+        "patient_reply": reply,
+        "patient_label": label,
+        "latest_supervision": s.get("latest_supervision"),
+        "supervision_history": s.get("supervision_history"),
+        "latest_evaluation": s.get("latest_evaluation"),
+        "therapist_turn_count": s["therapist_turn_count"]
+    })
 
 @app.route("/api/evaluation", methods=["POST"])
-def api_evaluation():
-    if not is_logged_in():
-        return jsonify({"error": "Nicht autorisiert"}), 401
+def evaluation():
+    s = load_state()
 
-    state = load_state()
+    eval_text = call_rater(
+        s["case_id"],
+        s["therapist_turns"],
+        s["dialog_history"]
+    )
 
-    try:
-        evaluation_text = call_rater(state["case_id"], state["therapist_turns"], state["dialog_history"])
-        state["latest_evaluation"] = evaluation_text
-        save_state(state)
-    except Exception as e:
-        return jsonify({"error": f"Fehler beim Evaluator-Aufruf: {str(e)}"}), 500
+    s["latest_evaluation"] = eval_text
+    save_state(s)
 
-    return jsonify({"evaluation_text": evaluation_text})
+    return jsonify({"evaluation_text": eval_text})
 
-
-if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False)
+@app.route("/api/reset", methods=["POST"])
+def reset():
+    s = create_state()
+    save_state(s)
+    return jsonify({"ok": True})
