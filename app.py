@@ -40,6 +40,8 @@ MAX_INPUT_LENGTH = int(os.getenv("MAX_INPUT_LENGTH", "3000"))
 DEFAULT_SUPERVISION_INTERVAL = int(os.getenv("DEFAULT_SUPERVISION_INTERVAL", "5"))
 MAX_HISTORY_LINES = 40
 
+INVALID_CASES: List[Dict[str, Any]] = []
+
 
 def load_yaml(path: Path) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
@@ -92,14 +94,12 @@ def validate_case_config(case_data: Dict[str, Any], filename: str) -> List[str]:
     return errors
 
 
-INVALID_CASES: List[Dict[str, Any]] = []
-
-
 def discover_cases() -> Dict[str, Dict[str, Any]]:
+    global INVALID_CASES
+    INVALID_CASES = []
+
     cases: Dict[str, Dict[str, Any]] = {}
     seen_ids = set()
-
-    INVALID_CASES.clear()
 
     for path in sorted(CASES_DIR.glob("case_*.yaml")):
         try:
@@ -226,6 +226,8 @@ def load_state() -> Dict[str, Any]:
 
     if "case_id" not in state or state["case_id"] not in CASES:
         state["case_id"] = DEFAULT_CASE_ID
+    if "mode" not in state:
+        state["mode"] = "training"
     if "latest_supervision" not in state:
         state["latest_supervision"] = None
     if "latest_evaluation" not in state:
@@ -234,8 +236,6 @@ def load_state() -> Dict[str, Any]:
         state["supervision_history"] = []
     if "supervision_interval" not in state:
         state["supervision_interval"] = DEFAULT_SUPERVISION_INTERVAL
-    if "mode" not in state:
-        state["mode"] = "training"
 
     cleaned_history = []
     latest_supervision = state.get("latest_supervision")
@@ -259,8 +259,10 @@ def load_state() -> Dict[str, Any]:
     return state
 
 
-def reset_state(case_id: Optional[str] = None) -> Dict[str, Any]:
+def reset_state(case_id: Optional[str] = None, mode: Optional[str] = None) -> Dict[str, Any]:
     state = create_empty_state(case_id=case_id)
+    if mode in {"training", "exam"}:
+        state["mode"] = mode
     save_state(state)
     return state
 
@@ -444,6 +446,7 @@ def index():
         default_supervision_interval=DEFAULT_SUPERVISION_INTERVAL,
         case_options=case_options,
         current_case_id=state["case_id"],
+        current_mode=state.get("mode", "training"),
     )
 
 
@@ -483,12 +486,13 @@ def api_state():
 def api_settings():
     if not is_logged_in():
         return jsonify({"error": "Nicht autorisiert"}), 401
-    mode = data.get("mode", state.get("mode", "training"))
+
     state = load_state()
     data = request.get_json(force=True) or {}
 
     interval = data.get("supervision_interval", DEFAULT_SUPERVISION_INTERVAL)
     case_id = data.get("case_id", state["case_id"])
+    mode = data.get("mode", state.get("mode", "training"))
 
     try:
         interval = int(interval)
@@ -501,12 +505,16 @@ def api_settings():
     if case_id not in CASES:
         return jsonify({"error": "Ungültiger Fall."}), 400
 
+    if mode not in {"training", "exam"}:
+        return jsonify({"error": "Ungültiger Modus."}), 400
+
     case_changed = case_id != state["case_id"]
 
     if case_changed:
         state = create_empty_state(case_id=case_id)
 
     state["supervision_interval"] = interval
+    state["mode"] = mode
     save_state(state)
 
     current_case = get_case(state["case_id"])
@@ -519,10 +527,11 @@ def api_settings():
             "scenario": current_case["scenario"],
             "patient_label": get_patient_label(state["case_id"]).upper(),
             "supervision_interval": interval,
+            "mode": state["mode"],
             "message": (
-                f"Fall gewechselt und Sitzung zurückgesetzt. Supervisionsintervall auf {interval} gesetzt."
+                f"Fall gewechselt und Sitzung zurückgesetzt. Modus: {state['mode']}. Supervisionsintervall auf {interval} gesetzt."
                 if case_changed
-                else f"Supervisionsintervall auf {interval} gesetzt."
+                else f"Modus: {state['mode']}. Supervisionsintervall auf {interval} gesetzt."
             ),
         }
     )
@@ -534,13 +543,14 @@ def api_reset():
         return jsonify({"error": "Nicht autorisiert"}), 401
 
     state = load_state()
-    state = reset_state(case_id=state["case_id"])
+    state = reset_state(case_id=state["case_id"], mode=state.get("mode", "training"))
 
     return jsonify(
         {
             "ok": True,
             "message": "Sitzung zurückgesetzt.",
             "case_id": state["case_id"],
+            "mode": state["mode"],
             "patient_label": get_patient_label(state["case_id"]).upper(),
             "supervision_interval": state["supervision_interval"],
         }
@@ -585,7 +595,7 @@ def api_turn():
 
     supervision_interval = int(state.get("supervision_interval", DEFAULT_SUPERVISION_INTERVAL))
 
-    if state["therapist_turn_count"] % supervision_interval == 0:
+    if state.get("mode", "training") == "training" and state["therapist_turn_count"] % supervision_interval == 0:
         try:
             last_n = min(supervision_interval, len(state["therapist_turns"]))
             supervision_feedback = call_supervisor(
@@ -606,7 +616,7 @@ def api_turn():
                 "text": supervision_feedback
             })
 
-    if state["therapist_turn_count"] == EVAL_AFTER:
+    if state.get("mode", "training") == "training" and state["therapist_turn_count"] == EVAL_AFTER:
         try:
             evaluation_text = call_rater(
                 state["case_id"],
@@ -631,6 +641,7 @@ def api_turn():
             "latest_evaluation": state.get("latest_evaluation"),
             "supervision_history": state.get("supervision_history", []),
             "supervision_interval": supervision_interval,
+            "mode": state.get("mode", "training"),
             "case_id": state["case_id"],
         }
     )
