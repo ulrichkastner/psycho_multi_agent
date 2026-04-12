@@ -26,6 +26,27 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+function updateModeUI(mode) {
+  const isExam = mode === "exam";
+
+  if (supervisionBox) {
+    if (isExam) {
+      supervisionBox.innerHTML = "Im Prüfmodus ist die laufende Supervision deaktiviert.";
+      supervisionBox.classList.add("muted");
+      supervisionLabel.textContent = "Supervision deaktiviert";
+    }
+  }
+
+  if (supervisionHistoryList) {
+    if (isExam) {
+      supervisionHistoryList.innerHTML = "";
+      if (supervisionHistoryDetails) {
+        supervisionHistoryDetails.open = false;
+      }
+    }
+  }
+}
+
 function renderMarkdownBlock(text) {
   if (!text) return "";
   if (typeof marked === "undefined") {
