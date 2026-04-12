@@ -13,6 +13,7 @@ scenario:
 
 patient:
   role: "Simulierte Patientin"
+  gender: "female"
   model: "gpt-4.1-mini"
   instructions: |
     Du spielst eine 44-jährige Patientin namens Miriam S., die seit Monaten
