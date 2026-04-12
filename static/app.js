@@ -55,7 +55,7 @@ function renderHistory(lines) {
     } else if (line.startsWith("PATIENTIN: ")) {
       appendMessage(
         "patient",
-        `<strong>Patientin</strong><br>${escapeHtml(line.replace("PATIENTIN: ", ""))}`
+        `<strong>Patientin</strong><br>${renderMarkdown(line.replace("PATIENTIN: ", ""))}`
       );
     }
   }
@@ -257,7 +257,7 @@ async function sendTurn() {
 
     appendMessage(
       "patient",
-      `<strong>Patientin</strong><br>${escapeHtml(data.patient_reply || "")}`
+      `<strong>Patientin</strong><br>${renderMarkdown(data.patient_reply || "")}`
     );
 
     updateSupervisionUI(data.supervision_history || []);
