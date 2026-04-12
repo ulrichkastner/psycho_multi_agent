@@ -1,4 +1,3 @@
-const modeSelect = document.getElementById("modeSelect");
 const chat = document.getElementById("chat");
 const statusEl = document.getElementById("status");
 const sendBtn = document.getElementById("sendBtn");
@@ -11,6 +10,7 @@ const evaluationBox = document.getElementById("evaluationBox");
 const supervisionIntervalInput = document.getElementById("supervisionInterval");
 const saveSettingsBtn = document.getElementById("saveSettingsBtn");
 const caseSelect = document.getElementById("caseSelect");
+const modeSelect = document.getElementById("modeSelect");
 
 const scenarioTitle = document.getElementById("scenarioTitle");
 const scenarioDescription = document.getElementById("scenarioDescription");
@@ -24,27 +24,6 @@ function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text || "";
   return div.innerHTML;
-}
-
-function updateModeUI(mode) {
-  const isExam = mode === "exam";
-
-  if (supervisionBox) {
-    if (isExam) {
-      supervisionBox.innerHTML = "Im Prüfmodus ist die laufende Supervision deaktiviert.";
-      supervisionBox.classList.add("muted");
-      supervisionLabel.textContent = "Supervision deaktiviert";
-    }
-  }
-
-  if (supervisionHistoryList) {
-    if (isExam) {
-      supervisionHistoryList.innerHTML = "";
-      if (supervisionHistoryDetails) {
-        supervisionHistoryDetails.open = false;
-      }
-    }
-  }
 }
 
 function renderMarkdownBlock(text) {
@@ -270,16 +249,30 @@ function updateSupervisionUI(history) {
   renderSupervisionHistory(history);
 }
 
+function clearSupervisionUIForExamMode() {
+  supervisionBox.classList.remove("supervision-active");
+  supervisionBox.classList.add("muted");
+  supervisionBox.innerHTML = "Im Prüfmodus ist die laufende Supervision deaktiviert.";
+  supervisionLabel.textContent = "Supervision deaktiviert";
+  supervisionHistoryList.innerHTML = "";
+  if (supervisionHistoryDetails) {
+    supervisionHistoryDetails.open = false;
+  }
+}
+
+function updateModeUI(mode) {
+  const isExam = mode === "exam";
+
+  if (isExam) {
+    clearSupervisionUIForExamMode();
+  }
+}
+
 async function loadState() {
   try {
     const res = await fetch("/api/state");
     const data = await res.json();
 
-    if (typeof data.mode !== "undefined" && modeSelect) {
-      modeSelect.value = data.mode;
-      updateModeUI(data.mode);
-    }
-    
     if (!res.ok) {
       statusEl.textContent = data.error || "Fehler beim Laden des Zustands.";
       return;
@@ -299,8 +292,18 @@ async function loadState() {
       caseSelect.value = data.case_id;
     }
 
+    if (typeof data.mode !== "undefined" && modeSelect) {
+      modeSelect.value = data.mode;
+    }
+
     renderScenario(data.scenario);
-    updateSupervisionUI(data.supervision_history || []);
+
+    if (modeSelect && modeSelect.value === "exam") {
+      updateModeUI("exam");
+    } else {
+      updateSupervisionUI(data.supervision_history || []);
+    }
+
     setEvaluation(data.latest_evaluation || "");
   } catch (err) {
     statusEl.textContent = "Netzwerk- oder Serverfehler beim Laden.";
@@ -310,6 +313,7 @@ async function loadState() {
 async function saveSettings() {
   const interval = supervisionIntervalInput.value.trim();
   const caseId = caseSelect.value;
+  const mode = modeSelect ? modeSelect.value : "training";
 
   saveSettingsBtn.disabled = true;
   statusEl.textContent = "Einstellungen werden gespeichert ...";
@@ -323,11 +327,10 @@ async function saveSettings() {
       body: JSON.stringify({
         supervision_interval: interval,
         case_id: caseId,
-        mode: modeSelect.value
+        mode: mode
       }),
     });
 
-    
     const data = await res.json();
 
     if (!res.ok) {
@@ -343,21 +346,24 @@ async function saveSettings() {
       caseSelect.value = data.case_id;
     }
 
+    if (typeof data.mode !== "undefined" && modeSelect) {
+      modeSelect.value = data.mode;
+    }
+
     renderScenario(data.scenario);
 
     if (data.case_changed) {
       chat.innerHTML = "";
-      updateSupervisionUI([]);
       setEvaluation("");
     }
 
-    statusEl.textContent = data.message || "Gespeichert.";
-    
-    if (typeof data.mode !== "undefined" && modeSelect) {
-      modeSelect.value = data.mode;
-      updateModeUI(data.mode);
+    if (modeSelect && modeSelect.value === "exam") {
+      updateModeUI("exam");
+    } else {
+      updateSupervisionUI([]);
     }
-    
+
+    statusEl.textContent = data.message || "Gespeichert.";
   } catch (err) {
     statusEl.textContent = "Netzwerk- oder Serverfehler.";
   } finally {
@@ -401,8 +407,10 @@ async function sendTurn() {
 
     if (modeSelect && modeSelect.value === "training") {
       updateSupervisionUI(data.supervision_history || []);
+    } else {
+      updateModeUI("exam");
     }
-    
+
     setEvaluation(data.latest_evaluation || "");
 
     statusEl.textContent = `Turn ${data.therapist_turn_count} gespeichert.`;
@@ -449,21 +457,22 @@ async function resetSession() {
 
     const data = await res.json();
 
-    if (modeSelect) {
-      updateModeUI(modeSelect.value);
-    }
-    
     if (!res.ok) {
       statusEl.textContent = data.error || "Fehler";
       return;
     }
 
     chat.innerHTML = "";
-    updateSupervisionUI([]);
     setEvaluation("");
 
     if (typeof data.supervision_interval !== "undefined" && supervisionIntervalInput) {
       supervisionIntervalInput.value = data.supervision_interval;
+    }
+
+    if (modeSelect && modeSelect.value === "exam") {
+      updateModeUI("exam");
+    } else {
+      updateSupervisionUI([]);
     }
 
     statusEl.textContent = data.message || "Zurückgesetzt.";
