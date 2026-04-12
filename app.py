@@ -538,6 +538,7 @@ def api_turn():
     return jsonify(
         {
             "patient_reply": patient_reply,
+            "patient_label": get_patient_label(state["case_id"]).upper(),
             "supervision_feedback": supervision_feedback,
             "evaluation": evaluation_text,
             "therapist_turn_count": state["therapist_turn_count"],
