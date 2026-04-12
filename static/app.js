@@ -399,7 +399,10 @@ async function sendTurn() {
       `<strong>${escapeHtml(data.patient_label || "PATIENTIN")}</strong><br>${renderChatMarkdown(data.patient_reply || "")}`
     );
 
-    updateSupervisionUI(data.supervision_history || []);
+    if (modeSelect && modeSelect.value === "training") {
+      updateSupervisionUI(data.supervision_history || []);
+    }
+    
     setEvaluation(data.latest_evaluation || "");
 
     statusEl.textContent = `Turn ${data.therapist_turn_count} gespeichert.`;
