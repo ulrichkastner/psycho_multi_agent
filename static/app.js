@@ -33,6 +33,40 @@ function renderMarkdown(text) {
   return marked.parse(text);
 }
 
+function appendMessage(kind, text) {
+  const div = document.createElement("div");
+  div.className = `msg ${kind}`;
+  div.innerHTML = text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function renderHistory(lines) {
+  chat.innerHTML = "";
+
+  for (const line of lines) {
+    if (typeof line !== "string") continue;
+
+    if (line.startsWith("THERAPEUT: ")) {
+      appendMessage(
+        "therapist",
+        `<strong>Therapeut</strong><br>${escapeHtml(line.replace("THERAPEUT: ", ""))}`
+      );
+    } else if (line.startsWith("PATIENT")) {
+      const splitIndex = line.indexOf(":");
+      if (splitIndex === -1) continue;
+
+      const label = line.substring(0, splitIndex).trim();
+      const content = line.substring(splitIndex + 1).trim();
+
+      appendMessage(
+        "patient",
+        `<strong>${escapeHtml(label)}</strong><br>${renderMarkdown(content)}`
+      );
+    }
+  }
+}
+
 function buildSupervisionAccordion(markdownText) {
   const rawHtml = renderMarkdown(markdownText || "");
   if (!rawHtml.trim()) {
@@ -66,7 +100,7 @@ function buildSupervisionAccordion(markdownText) {
         };
         sections.push(currentSection);
       }
-      currentSection.content.push(node.cloneNode(true));
+      sections[currentSection ? sections.length - 1 : 0].content.push(node.cloneNode(true));
     }
   }
 
@@ -112,33 +146,6 @@ function buildSupervisionAccordion(markdownText) {
   });
 
   return out.innerHTML;
-}
-function appendMessage(kind, text) {
-  const div = document.createElement("div");
-  div.className = `msg ${kind}`;
-  div.innerHTML = text;
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-}
-
-function renderHistory(lines) {
-  chat.innerHTML = "";
-
-  for (const line of lines) {
-    if (typeof line !== "string") continue;
-
-    if (line.startsWith("THERAPEUT: ")) {
-      appendMessage(
-        "therapist",
-        `<strong>Therapeut</strong><br>${escapeHtml(line.replace("THERAPEUT: ", ""))}`
-      );
-    } else if (line.startsWith("PATIENTIN: ")) {
-      appendMessage(
-        "patient",
-        `<strong>Patientin</strong><br>${renderMarkdown(line.replace("PATIENTIN: ", ""))}`
-      );
-    }
-  }
 }
 
 function setSupervision(text, number = null) {
@@ -335,9 +342,11 @@ async function sendTurn() {
       return;
     }
 
+    const patientLabel = getRenderedPatientLabel(data);
+
     appendMessage(
       "patient",
-      `<strong>Patientin</strong><br>${renderMarkdown(data.patient_reply || "")}`
+      `<strong>${escapeHtml(patientLabel)}</strong><br>${renderMarkdown(data.patient_reply || "")}`
     );
 
     updateSupervisionUI(data.supervision_history || []);
@@ -349,6 +358,29 @@ async function sendTurn() {
   } finally {
     sendBtn.disabled = false;
   }
+}
+
+function getRenderedPatientLabel(data) {
+  if (data && data.case_id && caseSelect) {
+    const selectedOption = Array.from(caseSelect.options).find(
+      (opt) => opt.value === data.case_id
+    );
+    if (selectedOption) {
+      const title = selectedOption.textContent || "";
+      if (title.includes("Patient:in")) return "PATIENT:IN";
+    }
+  }
+
+  return inferPatientLabelFromScenario() || "PATIENTIN";
+}
+
+function inferPatientLabelFromScenario() {
+  const scenarioText = `${scenarioTitle?.textContent || ""} ${scenarioDescription?.textContent || ""}`.toLowerCase();
+
+  if (scenarioText.includes("patient:in")) return "PATIENT:IN";
+  if (scenarioText.includes(" patient ") || scenarioText.includes("einem ")) return "PATIENT";
+
+  return "PATIENTIN";
 }
 
 async function runEvaluation() {
