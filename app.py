@@ -234,6 +234,8 @@ def load_state() -> Dict[str, Any]:
         state["supervision_history"] = []
     if "supervision_interval" not in state:
         state["supervision_interval"] = DEFAULT_SUPERVISION_INTERVAL
+    if "mode" not in state:
+        state["mode"] = "training"
 
     cleaned_history = []
     latest_supervision = state.get("latest_supervision")
