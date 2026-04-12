@@ -458,6 +458,7 @@ def api_state():
     return jsonify(
         {
             "case_id": state["case_id"],
+            "mode": state.get("mode", "training"),
             "scenario": current_case["scenario"],
             "dialog_history": state["dialog_history"],
             "therapist_turn_count": state["therapist_turn_count"],
