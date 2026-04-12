@@ -254,6 +254,11 @@ async function loadState() {
     const res = await fetch("/api/state");
     const data = await res.json();
 
+    if (typeof data.mode !== "undefined" && modeSelect) {
+      modeSelect.value = data.mode;
+      updateModeUI(data.mode);
+    }
+    
     if (!res.ok) {
       statusEl.textContent = data.error || "Fehler beim Laden des Zustands.";
       return;
