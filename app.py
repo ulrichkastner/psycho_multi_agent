@@ -313,16 +313,21 @@ def call_supervisor(case_id: str, last_therapist_turns: List[str], last_patient_
     return llm_completion(instructions, text, temperature=0.4)
 
 
-def call_rater(full_therapist_transcript: List[str], full_dialog: List[str]) -> str:
+def call_rater(case_id: str, full_therapist_transcript: List[str], full_dialog: List[str]) -> str:
+    label = get_patient_label(case_id)
     instructions = base_agents["rater"]["instructions"]
 
+    instructions = instructions.replace("Patientin", label)
+    instructions = instructions.replace("patientin", label.lower())
+    instructions = instructions.replace("Patientinnen", label)
+
     text = "Gesamter Dialog:\n" + "\n".join(full_dialog[-80:]) + "\n\n"
+    text += f"Rollenbezeichnung im Fall: {label}\n\n"
     text += "Therapeuten-Interventionen im Überblick:\n"
     for i, t in enumerate(full_therapist_transcript, start=1):
         text += f"{i}. {t}\n"
 
     return llm_completion(instructions, text, temperature=0.3)
-
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
