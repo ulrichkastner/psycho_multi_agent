@@ -1,7 +1,8 @@
 scenario:
-  gender: "male"
   id: "case_werther"
   title: "Affektive Überwältigung und suizidale Idealisierung"
+  gender: "male"
+  role_label: "Patient"
   meta_level:
     source: ":contentReference[oaicite:0]{index=0} – :contentReference[oaicite:1]{index=1}"
     didactic_risk: "Romantisierung von Suizid (Werther-Effekt)"
