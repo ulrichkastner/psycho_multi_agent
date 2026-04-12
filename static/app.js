@@ -346,8 +346,8 @@ async function sendTurn() {
 
     appendMessage(
       "patient",
-      `<strong>${escapeHtml(patientLabel)}</strong><br>${renderMarkdown(data.patient_reply || "")}`
-    );
+      `<strong>${escapeHtml(data.patient_label || "PATIENTIN")}</strong><br>${renderMarkdown(data.patient_reply || "")}`
+      );
 
     updateSupervisionUI(data.supervision_history || []);
     setEvaluation(data.latest_evaluation || "");
