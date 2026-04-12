@@ -10,8 +10,17 @@ const evaluationBox = document.getElementById("evaluationBox");
 const supervisionIntervalInput = document.getElementById("supervisionInterval");
 const saveSettingsBtn = document.getElementById("saveSettingsBtn");
 
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text || "";
+  return div.innerHTML;
+}
+
 function renderMarkdown(text) {
   if (!text) return "";
+  if (typeof marked === "undefined") {
+    return escapeHtml(text);
+  }
   return marked.parse(text);
 }
 
@@ -37,12 +46,9 @@ function renderHistory(lines) {
     } else if (line.startsWith("PATIENTIN: ")) {
       appendMessage(
         "patient",
-        `<strong>Patientin</strong><br>${renderMarkdown(data.patient_reply || "")}`
+        `<strong>Patientin</strong><br>${escapeHtml(line.replace("PATIENTIN: ", ""))}`
       );
-
     } else {
-      // Alte oder versehentliche Meta-Einträge wie SUPERVISION / EVALUATION
-      // werden bewusst nicht mehr im Dialogfeld angezeigt.
       continue;
     }
   }
