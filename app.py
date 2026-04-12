@@ -40,20 +40,10 @@ MAX_INPUT_LENGTH = int(os.getenv("MAX_INPUT_LENGTH", "3000"))
 DEFAULT_SUPERVISION_INTERVAL = int(os.getenv("DEFAULT_SUPERVISION_INTERVAL", "5"))
 MAX_HISTORY_LINES = 40
 
-INVALID_CASES: List[Dict[str, Any]] = []
-
 
 def load_yaml(path: Path) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
-
-
-base_config = load_yaml(BASE_CONFIG_PATH)
-base_agents = base_config["agents"]
-orchestration = base_config.get("orchestration", {})
-
-eval_cfg = orchestration.get("evaluation_trigger", [])
-EVAL_AFTER = eval_cfg[0].get("after_therapist_turns", 12) if eval_cfg else 12
 
 
 def validate_case_config(case_data: Dict[str, Any], filename: str) -> List[str]:
@@ -94,10 +84,17 @@ def validate_case_config(case_data: Dict[str, Any], filename: str) -> List[str]:
     return errors
 
 
-def discover_cases() -> Dict[str, Dict[str, Any]]:
-    global INVALID_CASES
-    INVALID_CASES = []
+base_config = load_yaml(BASE_CONFIG_PATH)
+base_agents = base_config["agents"]
+orchestration = base_config.get("orchestration", {})
 
+eval_cfg = orchestration.get("evaluation_trigger", [])
+EVAL_AFTER = eval_cfg[0].get("after_therapist_turns", 12) if eval_cfg else 12
+
+INVALID_CASES: List[Dict[str, Any]] = []
+
+
+def discover_cases() -> Dict[str, Dict[str, Any]]:
     cases: Dict[str, Dict[str, Any]] = {}
     seen_ids = set()
 
@@ -259,10 +256,8 @@ def load_state() -> Dict[str, Any]:
     return state
 
 
-def reset_state(case_id: Optional[str] = None, mode: Optional[str] = None) -> Dict[str, Any]:
+def reset_state(case_id: Optional[str] = None) -> Dict[str, Any]:
     state = create_empty_state(case_id=case_id)
-    if mode in {"training", "exam"}:
-        state["mode"] = mode
     save_state(state)
     return state
 
@@ -543,7 +538,10 @@ def api_reset():
         return jsonify({"error": "Nicht autorisiert"}), 401
 
     state = load_state()
-    state = reset_state(case_id=state["case_id"], mode=state.get("mode", "training"))
+    old_mode = state.get("mode", "training")
+    state = reset_state(case_id=state["case_id"])
+    state["mode"] = old_mode
+    save_state(state)
 
     return jsonify(
         {
@@ -641,8 +639,8 @@ def api_turn():
             "latest_evaluation": state.get("latest_evaluation"),
             "supervision_history": state.get("supervision_history", []),
             "supervision_interval": supervision_interval,
-            "mode": state.get("mode", "training"),
             "case_id": state["case_id"],
+            "mode": state.get("mode", "training"),
         }
     )
 
