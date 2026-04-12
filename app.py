@@ -564,7 +564,7 @@ def api_evaluation():
     state = load_state()
 
     try:
-        evaluation_text = call_rater(state["therapist_turns"], state["dialog_history"])
+        evaluation_text = call_rater(state["case_id"], state["therapist_turns"], state["dialog_history"])
         state["latest_evaluation"] = evaluation_text
         save_state(state)
     except Exception as e:
