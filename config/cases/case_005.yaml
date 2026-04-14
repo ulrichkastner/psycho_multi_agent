@@ -1,6 +1,6 @@
 scenario:
   id: "case_werther"
-  title: "Affektive Überwältigung und suizidale Idealisierung"
+  title: "Werther - Affektive Überwältigung und suizidale Idealisierung"
   gender: "male"
   role_label: "Patient"
   meta_level:
