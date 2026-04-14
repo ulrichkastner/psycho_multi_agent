@@ -284,7 +284,7 @@
         <select id="caseSelect">
           {% for case in case_options %}
             <option value="{{ case.id }}" {% if case.id == current_case_id %}selected{% endif %}>
-              {{ case.id }} – {{ case.title }}
+                  {{ case.title }}
             </option>
           {% endfor %}
         </select>
