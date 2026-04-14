@@ -1,7 +1,7 @@
 scenario:  
   gender: "male"
   id: "case_harry"
-  title: "Trauma, Identität und Verantwortung"
+  title: "Harry Potter - Trauma, Identität und Verantwortung"
   description: >
     Der Nutzer/ die Nutzerin führt ein Erstgespräch mit dem 17-jährigen Harry Potter.
   learning_goals:
