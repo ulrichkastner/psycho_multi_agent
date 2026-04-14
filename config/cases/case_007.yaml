@@ -1,7 +1,7 @@
 scenario:
   gender: "female"
   id: "case_hannah"
-  title: "Interpersonelle Kränkung und suizidale Attribution"
+  title: "Hannah Baker - Interpersonelle Kränkung und suizidale Attribution"
   meta_level:
     source: ":contentReference[oaicite:5]{index=5} – :contentReference[oaicite:6]{index=6}"
     didactic_risk: "Vereinfachte Kausalität von Suizid („Gründe-Logik“)"
