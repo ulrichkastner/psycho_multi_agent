@@ -49,9 +49,12 @@ function setSupervision(text) {
 }
 
 function setEvaluation(text) {
+  evaluationBox.classList.remove("evaluation-active");
+
   if (text && text.trim()) {
     evaluationBox.classList.remove("muted");
-    evaluationBox.innerHTML = escapeHtml(text);
+    evaluationBox.classList.add("evaluation-active");
+    evaluationBox.innerHTML = renderMarkdownBlock(text);
   } else {
     evaluationBox.classList.add("muted");
     evaluationBox.innerHTML = "Noch keine Evaluation vorhanden.";
